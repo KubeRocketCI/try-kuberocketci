@@ -17,13 +17,21 @@ platform up with a couple of commands and poke at any component.
 
 ## Quick start
 
-Spin up the whole platform from scratch, three commands (each is idempotent and
-independently re-runnable):
+Spin up the whole platform from scratch, two commands:
 
 ```bash
-make testbed     # ~10-15 min: kind + ingress + cert-manager + Tekton + KRCI + Prometheus + Results
-make gitlab      # ~6-8 min:  self-hosted GitLab + registry + GitServer + GitOps repo + webhook wiring
-make e2e         # ~4 min:    triggers a review pipeline; PASS = green except the sonar task
+make testbed     # ~18-20 min: all dependencies first, then KRCI installed LAST with values
+make e2e         # ~4 min:     triggers a review pipeline; PASS = green except the sonar task
+```
+
+`make testbed` builds in dependency order and installs the KRCI platform last so the
+chart can wire itself to what's already up:
+
+```
+cluster → ingress → cert-manager → Tekton → Prometheus → Tekton Results
+        → gitlab-up   (deploy GitLab + bootstrap creds/secrets)        [bash]
+        → krci        (edp-install; renders GitServer/EventListener/Ingress + registry from values)
+        → gitlab-integrate  (operator CA trust + gitlab-set-status fix + GitOps repo)  [bash]
 ```
 
 Then optionally:
@@ -34,7 +42,7 @@ make token       # mint a 24h login token for the Portal (run from source — se
 ```
 
 `make down` tears the whole cluster back down. A full from-zero validation is
-exactly: `make down && make testbed && make gitlab && make e2e`.
+exactly: `make down && make testbed && make e2e`.
 
 > `make e2e` ends **green except `sonar`** on purpose — the review/build pipelines
 > include a SonarQube quality-gate task and SonarQube is **not** deployed here.
@@ -61,20 +69,22 @@ intentionally disabled — run it from source (below).
 Run `make help` for the full list. Build it up piecemeal or all at once:
 
 ```bash
-make up            # core only: cluster -> ingress -> cert-manager -> tekton -> krci
+make up            # prerequisites only: cluster -> ingress -> cert-manager -> tekton (no KRCI)
 make prometheus    # add kube-prometheus-stack + Grafana
 make tekton-results# add Tekton Results v0.17.2 + its minimal Postgres
-make testbed       # = up + prometheus + tekton-results
+make krci          # install KubeRocketCI (renders GitServer/EL from values; run gitlab-up first)
+make testbed       # full platform: up + prometheus + results + gitlab-up + krci + gitlab-integrate
 
 make token         # 24h cluster-admin bearer token (Portal login)
 make results-forward  # port-forward Tekton Results API to localhost:8080
 make status        # cluster + KRCI + capabilities overview
 make krci-dry-run  # render the edp-install chart without installing
 make argocd        # (optional) Argo CD for CD/deploy stages
-make gitlab        # self-hosted GitLab + GitServer + webhook wiring (see below)
-make gitlab-status # show GitLab pod / GitServer / EventListener / webhook state
-make e2e           # trigger a review pipeline; PASS = green except sonar
-make down          # delete the kind cluster
+make gitlab-up        # (pre-krci) deploy GitLab + bootstrap creds/secrets + CoreDNS
+make gitlab-integrate # (post-krci) operator CA trust + gitlab-set-status fix + GitOps repo
+make gitlab-status    # show GitLab pod / GitServer / EventListener / webhook state
+make e2e              # trigger a review pipeline; PASS = green except sonar
+make down             # delete the kind cluster
 ```
 
 Each capability target is independent and idempotent, so you can rebuild or debug
@@ -105,43 +115,42 @@ TEKTON_RESULTS_URL=http://tekton-results.127.0.0.1.nip.io
 
 `make results-forward` (localhost:8080) is still available as a fallback.
 
-## Self-hosted GitLab + webhook integration (`make gitlab`)
+## Self-hosted GitLab + webhook integration
 
-Deploys a single-pod GitLab CE into the cluster and wires it so a GitLab **merge
-request** triggers a KubeRocketCI Tekton pipeline through the edp-tekton GitLab
-EventListener + `gitlab` ClusterInterceptor.
+A single-pod GitLab CE is wired so a GitLab **merge request** triggers a
+KubeRocketCI Tekton pipeline through the edp-tekton GitLab EventListener +
+`gitlab` ClusterInterceptor. GitLab is a **platform dependency**: it comes up
+*before* `make krci`, and the **GitServer / EventListener / Ingress are rendered by
+the chart** from `edp-tekton.gitServers` in `values/edp-install.yaml` — not created
+imperatively. `make testbed` runs the phases in order; the GitLab-specific bash is
+split into `gitlab-up` (pre-krci) and `gitlab-integrate` (post-krci). See
+`docs/gitlab-declarative-refactor.md` for the rationale.
 
-```bash
-# prerequisite: gitlab is in global.gitProviders in values/edp-install.yaml
-# (already set here) so edp-tekton renders the gitlab TriggerBindings/Templates.
-make gitlab          # deploy GitLab, bootstrap creds, register the GitServer
-make gitlab-status   # check it came up green
-```
+**`gitlab-up`** (`scripts/gitlab-up.sh`, before krci):
 
-What it sets up (all in `scripts/gitlab.sh`, idempotent):
+1. **GitLab CE** (`manifests/gitlab.yaml`) — one omnibus pod, exporters/KAS off,
+   Puma single-mode, Container Registry on `:5050`. Data + `/etc/gitlab` on PVCs.
+2. **TLS** — GitLab serves **HTTPS** with a self-signed cert (secret `gitlab-tls`);
+   required because the operator's GitLab API client only speaks https.
+3. **CoreDNS split-horizon** — `gitlab.127.0.0.1.nip.io` → GitLab svc; EventListener
+   host `el-gitlab-krci.127.0.0.1.nip.io` → ingress-nginx (deterministic, added up front).
+4. **Credentials/secrets in ns `krci`** — `ci-gitlab` (token/username/id_rsa/secretString,
+   referenced by `gitServers`), `kaniko-docker-config` (group deploy token for the
+   registry), `custom-ca-certificates` + cm `gitlab-ca` (the self-signed CA).
+5. **A `krci` group** — Codebases live under `krci/<repo>`.
 
-1. **GitLab CE** (`manifests/gitlab.yaml`) — one omnibus pod, exporters/registry/KAS
-   off, Puma single-mode. Data + `/etc/gitlab` (secrets) on PVCs.
-2. **TLS** — GitLab serves **HTTPS** with a self-signed cert (secret `gitlab-tls`).
-   This is required: the codebase-operator's GitLab API client only speaks https
-   (the GitServer CRD has just `httpsPort`). The operator is patched to trust that
-   CA (mounted into `/etc/ssl/certs`).
-3. **CoreDNS split-horizon** — `gitlab.127.0.0.1.nip.io` → GitLab svc (for the
-   operator's API/SSH), and the EventListener ingress host → ingress-nginx (so
-   GitLab can POST webhooks in-cluster). The browser still reaches both at
-   `localhost` via the kind ingress.
-4. **Credentials** — root PAT, SSH key, and a webhook secret, stored in the `krci`
-   secret `ci-gitlab` (keys `token` / `username` / `id_rsa` / `secretString`).
-5. **GitServer CR** `gitlab` (no `webhookUrl`), which makes the codebase-operator
-   create EventListener `edp-gitlab` + its ingress automatically.
-6. **A `krci` group** in GitLab — Codebases live under `krci/<repo>` (set
-   `gitUrlPath: /krci/<repo>`) instead of root's personal namespace.
-7. **The GitOps repo** `krci/krci-gitops` (`manifests/krci-gitops.yaml`) — a
-   `system`/`helm`/`gitops` Codebase (labels `app.edp.epam.com/codebaseType=system`
-   + `systemType=gitops`), which KubeRocketCI requires before Deployments/CD
-   pipelines.
-8. **Container registry** — enables GitLab's registry and points KRCI at it
-   (see below), plus the `kaniko-docker-config` + `custom-ca-certificates` secrets.
+**`make krci`** then renders, from values: the **GitServer `gitlab`**, **EventListener
+`edp-gitlab`**, its **Ingress**, the gitlab pipelines, and the registry config in
+`krci-config`. Because `ci-gitlab` already exists, the GitServer connects on first
+reconcile (no EL-creation race).
+
+**`gitlab-integrate`** (`scripts/gitlab-integrate.sh`, after krci) — only what the
+chart can't express:
+
+6. **operator CA trust** — mount cm `gitlab-ca` into codebase-operator (no chart hook).
+7. **`gitlab-set-status` fix** — patch the upstream task (host parse + self-signed TLS).
+8. **GitOps repo** `krci/krci-gitops` (`manifests/krci-gitops.yaml`) — a
+   `system`/`helm`/`gitops` Codebase KubeRocketCI requires before Deployments.
 
 End-to-end test (`manifests/sample-codebase.yaml`):
 
@@ -195,8 +204,10 @@ manifests/tekton-results-ingress.yaml   # ingress: Results API at tekton-results
 manifests/gitlab.yaml                   # self-hosted GitLab CE (HTTPS, single pod)
 manifests/sample-codebase.yaml          # e2e: Codebase+branch that exercises the webhook
 manifests/krci-gitops.yaml              # KubeRocketCI GitOps repo (system/helm codebase)
-scripts/gitlab.sh                       # deploy GitLab + creds + GitServer + group + gitops + webhook
+scripts/gitlab-up.sh                    # (pre-krci) deploy GitLab + bootstrap creds/secrets + CoreDNS
+scripts/gitlab-integrate.sh             # (post-krci) operator CA trust + task fix + GitOps repo
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script (host parse + TLS)
+docs/gitlab-declarative-refactor.md     # rationale for the deps-first / KRCI-last ordering
 ```
 
 ## Notes & decisions

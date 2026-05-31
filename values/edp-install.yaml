@@ -28,14 +28,35 @@ global:
     url: "gitlab.127.0.0.1.nip.io:5050"
     space: "krci"
 
-# edp-tekton (pipelines library): tell the kaniko build task that the registry
-# uses a custom (self-signed) certificate. This flips `custom_certs=true` in the
-# kaniko task and mounts the CA at /kaniko/.custom-certs/ca.crt from the secret
-# `custom-ca-certificates` (key ca.crt) — which scripts/gitlab.sh creates from
-# the GitLab self-signed CA. Without it, kaniko push fails TLS verification.
+# edp-tekton (pipelines library) configuration.
 edp-tekton:
+  # Tell the kaniko build task that the registry uses a custom (self-signed) cert.
+  # Flips `custom_certs=true` and mounts the CA at /kaniko/.custom-certs/ca.crt from
+  # secret `custom-ca-certificates` (key ca.crt), created by scripts/gitlab-up.sh.
+  # Without it, kaniko push fails TLS verification.
   kaniko:
     customCert: true
+
+  # DECLARATIVE GitServer: the chart renders the GitServer CR + EventListener
+  # (edp-gitlab) + its Ingress (event-listener-gitlab) from this map — replacing
+  # the imperative `kubectl apply GitServer` + EL-readiness polling. It references
+  # the `ci-gitlab` secret (token/id_rsa/secretString) which scripts/gitlab-up.sh
+  # creates BEFORE this chart installs, so the GitServer connects on first reconcile.
+  # The operator does not create a duplicate EL (it defers when one already exists).
+  gitServers:
+    gitlab:
+      gitProvider: gitlab
+      host: gitlab.127.0.0.1.nip.io
+      gitUser: git
+      httpsPort: 443
+      sshPort: 32222
+      nameSshKeySecret: ci-gitlab
+      webhook:
+        skipWebhookSSLVerification: true
+      eventListener:
+        enabled: true
+        ingress:
+          enabled: true
 
 # We are NOT using External Secrets Operator locally. Disable it AND the
 # install-secret management so the chart does not create ExternalSecret objects

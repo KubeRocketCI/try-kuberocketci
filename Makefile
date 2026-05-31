@@ -123,7 +123,7 @@ krci-dry-run: repo ## Render the chart (no install) to reveal required values
 	  -f $(VALUES) --dry-run --debug 2>&1 | tail -60
 
 .PHONY: krci
-krci: repo ## Install KubeRocketCI (edp-install $(EDP_VERSION))
+krci: repo ## Install KubeRocketCI (edp-install $(EDP_VERSION)); renders GitServer/EL from values (run gitlab-up first)
 	helm upgrade --install edp $(HELM_REPO_NAME)/edp-install \
 	  --version $(EDP_VERSION) -n $(NS) --create-namespace \
 	  -f $(VALUES) --wait --timeout 900s
@@ -179,9 +179,17 @@ status: ## Show cluster + KubeRocketCI status
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    Results API: http://tekton-results.$(WILDCARD)" || true
 
 # ---- self-hosted git --------------------------------------------------------
-.PHONY: gitlab
-gitlab: ## Deploy self-hosted GitLab + GitServer + webhook wiring
-	bash scripts/gitlab.sh
+# GitLab is a platform DEPENDENCY: gitlab-up runs BEFORE krci (so the chart can
+# render the GitServer/EventListener from edp-tekton.gitServers and connect using
+# the ci-gitlab secret); gitlab-integrate runs AFTER krci (operator CA + task fix
+# + GitOps repo). `make testbed` chains them in the right order.
+.PHONY: gitlab-up
+gitlab-up: ## (pre-krci) Deploy GitLab + bootstrap creds/secrets + CoreDNS
+	bash scripts/gitlab-up.sh
+
+.PHONY: gitlab-integrate
+gitlab-integrate: ## (post-krci) operator CA trust + gitlab-set-status fix + GitOps repo
+	bash scripts/gitlab-integrate.sh
 
 .PHONY: e2e
 e2e: ## Validate end-to-end: trigger a review pipeline; PASS = green except sonar
@@ -198,12 +206,15 @@ gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 
 # ---- lifecycle --------------------------------------------------------------
 .PHONY: up
-up: preflight cluster ingress cert-manager tekton krci ## Bring up the core stack (no Argo/GitLab)
-	@echo "Core stack up. Next:  make testbed  (adds Prometheus + Tekton Results), then make token"
+up: preflight cluster ingress cert-manager tekton ## Platform prerequisites (cluster + ingress + cert-manager + Tekton; no KRCI yet)
+	@echo "Prerequisites up. Next: make testbed (adds deps + GitLab, then installs KRCI last)."
 
+# Dependencies first, KRCI platform LAST (with values that wire it to them), then
+# the post-install glue. Prerequisites build left-to-right:
+#   up -> prometheus -> tekton-results -> gitlab-up -> krci -> gitlab-integrate
 .PHONY: testbed
-testbed: up prometheus tekton-results ## Full test bed: core stack + Prometheus + Tekton Results
-	@echo "Full test bed up. Capabilities: Prometheus ($(PROM_CHART_VERSION)), Tekton Results (v0.17.2)."
+testbed: up prometheus tekton-results gitlab-up krci gitlab-integrate ## Full platform: deps first, KRCI (with gitServers/registry values) last
+	@echo "Full platform up. KRCI installed last; GitServer/EventListener rendered from values. Validate: make e2e"
 
 .PHONY: down
 down: ## Delete the kind cluster
