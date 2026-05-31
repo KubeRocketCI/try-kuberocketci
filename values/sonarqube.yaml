@@ -1,0 +1,112 @@
+# SonarQube values for LOCAL kind testing — KubeRocketCI code-quality engine.
+# Chart: sonarqube/sonarqube 2025.3.1 (Community) from https://SonarSource.github.io/helm-chart-sonarqube
+#
+# Mirrors edp-cluster-add-ons/clusters/core/addons/sonar/values.yaml — BUT that file
+# nests everything under a `sonarqube:` subchart alias (it's an umbrella chart). Here we
+# install the chart DIRECTLY, so the same keys live at TOP LEVEL. Local deltas vs add-ons:
+#   * postgresql.enabled=false + jdbcOverwrite -> our own minimal Postgres
+#     (manifests/sonar-postgres.yaml), same as Tekton Results.
+#   * monitoringPasscode set (chart REQUIRES it or the pod never becomes Ready).
+#   * ingress host -> sonar.127.0.0.1.nip.io (nginx).
+#   * the add-ons `eso:` block is dropped (no External Secrets locally).
+
+image:
+  repository: sonarqube
+  tag: "25.5.0.107428-community"
+community:
+  enabled: true
+# Deployment (not StatefulSet) so `make sonar` can `rollout status deploy/sonar`.
+deploymentType: "Deployment"
+nameOverride: "sonar"
+fullnameOverride: "sonar"
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  hosts:
+    - name: sonar.127.0.0.1.nip.io
+  annotations:
+    # Allow large analysis-report uploads.
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+
+resources:
+  limits:
+    cpu: 700m
+    memory: 3Gi
+  requests:
+    cpu: 100m
+    memory: 1.5Gi
+
+plugins:
+  install:
+    - "https://github.com/sonar-auth-oidc/sonar-auth-oidc/releases/download/v3.0.0/sonar-auth-oidc-plugin-3.0.0.jar"
+    - "https://github.com/checkstyle/sonar-checkstyle/releases/download/10.20.1/checkstyle-sonar-plugin-10.20.1.jar"
+    - "https://github.com/spotbugs/sonar-findbugs/releases/download/4.2.9/sonar-findbugs-plugin-4.2.9.jar"
+    - "https://github.com/jborgers/sonar-pmd/releases/download/3.5.1/sonar-pmd-plugin-3.5.1.jar"
+    - "https://github.com/sbaudoin/sonar-ansible/releases/download/v2.5.1/sonar-ansible-plugin-2.5.1.jar"
+    - "https://github.com/sbaudoin/sonar-yaml/releases/download/v1.9.1/sonar-yaml-plugin-1.9.1.jar"
+    - "https://github.com/Inform-Software/sonar-groovy/releases/download/1.8/sonar-groovy-plugin-1.8.jar"
+    - "https://github.com/mc1arke/sonarqube-community-branch-plugin/releases/download/25.5.0/sonarqube-community-branch-plugin-25.5.0.jar"
+
+jvmCeOpts: -javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-25.5.0.jar=ce
+jvmOpts: -javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-25.5.0.jar=web
+
+extraVolumes:
+  - name: webapp
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: webapp
+    mountPath: /opt/sonarqube/web
+
+sonarProperties:
+  sonar.ce.javaAdditionalOpts: >-
+    -javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-25.5.0.jar=ce
+  sonar.web.javaAdditionalOpts: >-
+    -javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-25.5.0.jar=web
+  # Standard Experience (not Multi-Quality Rule mode).
+  sonar.multi-quality-mode.enabled: "false"
+
+extraInitContainers:
+  - name: download-webapp
+    image: busybox:1.37
+    volumeMounts:
+      - name: webapp
+        mountPath: /web
+    command:
+      - sh
+      - -c
+      - >
+        wget -O /tmp/sonarqube-webapp.zip https://github.com/mc1arke/sonarqube-community-branch-plugin/releases/download/25.5.0/sonarqube-webapp.zip &&
+        unzip -o /tmp/sonarqube-webapp.zip -d /web &&
+        chmod -R 755 /web &&
+        chown -R 1000:0 /web &&
+        rm -f /tmp/sonarqube-webapp.zip
+
+# REQUIRED: without a passcode the readiness probe never passes and the rollout hangs.
+monitoringPasscode: "local-monitoring"
+
+# Auto-change the admin password on first startup (a post-install/upgrade hook Job),
+# so the forced first-login password change is handled for us. Reads keys `password`
+# (new) + `currentPassword` (default "admin") from the secret. Same secret the
+# sonar-operator authenticates with (manifests/sonar-admin-secret.yaml) — it must exist
+# BEFORE this install, so `make sonar` applies it before `helm install`.
+setAdminPassword:
+  passwordSecretName: sonar-admin-password
+
+env:
+  - name: SONAR_TELEMETRY_ENABLE
+    value: "false"
+
+prometheusExporter:
+  enabled: false
+
+postgresql:
+  enabled: false
+
+jdbcOverwrite:
+  enable: true
+  jdbcUrl: "jdbc:postgresql://sonar-primary.sonar:5432/sonar?socketTimeout=1500"
+  jdbcUsername: "sonar"
+  jdbcSecretName: sonar-pguser-sonar
+  jdbcSecretPasswordKey: "password"

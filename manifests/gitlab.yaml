@@ -56,6 +56,14 @@ spec:
         - name: gitlab
           image: gitlab/gitlab-ce:17.5.1-ce.0
           env:
+            # Predictable root password for local runs — set via the Makefile
+            # GITLAB_ROOT_PASSWORD var, surfaced into this env by scripts/gitlab-up.sh
+            # (secret gitlab-root-password). Consumed by initial_root_password below.
+            - name: GITLAB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gitlab-root-password
+                  key: password
             - name: GITLAB_OMNIBUS_CONFIG
               value: |
                 # HTTPS is REQUIRED: the codebase-operator's GitLab REST client
@@ -66,6 +74,11 @@ spec:
                 # gitlab-tls at /etc/gitlab-tls) so SSH (32222) and the HTTPS API
                 # share one host and the single CoreDNS rewrite still works.
                 external_url 'https://gitlab.127.0.0.1.nip.io'
+                # Predictable root password on FIRST DB seed (omnibus reads this only
+                # when root is first created; on an existing data PVC it's a no-op).
+                # Reads the GITLAB_ROOT_PASSWORD env (see above); nil -> omnibus
+                # generates a random one (the old behaviour) so this stays optional.
+                gitlab_rails['initial_root_password'] = ENV['GITLAB_ROOT_PASSWORD']
                 nginx['listen_port'] = 443
                 nginx['listen_https'] = true
                 nginx['ssl_certificate'] = '/etc/gitlab-tls/tls.crt'

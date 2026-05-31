@@ -19,6 +19,9 @@ WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 GL_HOST="gitlab.${WILDCARD}"
 GS_NAME="gitlab"                          # must match the key in edp-tekton.gitServers
 EL_HOST="el-${GS_NAME}-${NS}.${WILDCARD}" # deterministic EventListener ingress host
+# Predictable root password (local only). Set via the Makefile GITLAB_ROOT_PASSWORD var;
+# keep this fallback in sync with the Makefile default. Applied on the FIRST DB seed.
+GL_ROOT_PW="${GITLAB_ROOT_PASSWORD:-KrciLocal_2026!}"
 KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -63,6 +66,13 @@ else
   echo "    secret gitlab-tls already present"
 fi
 
+echo "==> Setting the predictable root password (secret gitlab-root-password)"
+# Consumed by gitlab.yaml -> GITLAB_ROOT_PASSWORD env -> gitlab_rails['initial_root_password'].
+# Must exist BEFORE the Deployment so the first reconfigure seeds root with it.
+$KUBECTL -n "$GL_NS" create secret generic gitlab-root-password \
+  --from-literal=password="$GL_ROOT_PW" \
+  --dry-run=client -o yaml | $KUBECTL apply -f -
+
 echo "==> Deploying GitLab CE (this is heavy; first boot 3-6 min)"
 $KUBECTL apply -f "$HERE/manifests/gitlab.yaml"
 
@@ -92,9 +102,9 @@ for _ in $(seq 1 90); do
   sleep 5
 done
 
-echo "    Initial root password:"
-$KUBECTL -n $GL_NS exec "$POD" -- cat /etc/gitlab/initial_root_password 2>/dev/null | grep -i password || \
-  echo "    (file gone after 24h; reset via: gitlab-rake \"gitlab:password:reset[root]\")"
+echo "    Root login: user 'root' / password '$GL_ROOT_PW' (from secret gitlab-root-password)"
+echo "    (set on first DB seed; on an existing data PVC reset via:"
+echo "     kubectl -n $GL_NS exec $POD -- gitlab-rake \"gitlab:password:reset[root]\")"
 
 echo "==> Allowing webhooks to the local network (GitLab blocks them by default)"
 $KUBECTL -n $GL_NS exec "$POD" -- gitlab-rails runner '
@@ -157,8 +167,38 @@ if [ -n "$REG_TOKEN" ]; then
   $KUBECTL -n "$NS" create secret docker-registry kaniko-docker-config \
     --docker-server="${GL_HOST}:5050" --docker-username=krci-registry --docker-password="$REG_TOKEN" \
     --dry-run=client -o yaml | $KUBECTL apply -f -
+  # `regcred` = the image PULL secret KRCI's cd-pipeline-operator copies into each deploy
+  # namespace as the workload imagePullSecret. The Stage reconcile chain fails
+  # ("failed to get regcred secret") without it, so the deploy pipeline's pre-deploy step
+  # can't find the per-stage configmap. Same registry creds as kaniko (token has read_registry).
+  $KUBECTL -n "$NS" create secret docker-registry regcred \
+    --docker-server="${GL_HOST}:5050" --docker-username=krci-registry --docker-password="$REG_TOKEN" \
+    --dry-run=client -o yaml | $KUBECTL apply -f -
 else
-  echo "    (warn) could not mint registry deploy token; create kaniko-docker-config manually"
+  echo "    (warn) could not mint registry deploy token; create kaniko-docker-config/regcred manually"
+fi
+
+echo "==> Teaching the kind node's containerd to pull from the GitLab registry"
+# Deployed workloads reference gitlab.127.0.0.1.nip.io:5050/<group>/<repo>, but containerd
+# on the NODE resolves that host to 127.0.0.1 (nip.io) — the CoreDNS rewrite only helps
+# in-cluster pods, so image pulls fail with "dial 127.0.0.1:5050: connection refused".
+# Drop a hosts.toml that mirrors the registry host to the GitLab service ClusterIP (which
+# the node reaches via kube-proxy) and skips the self-signed cert. config_path is enabled
+# in kind/cluster.yaml, so certs.d is read per-pull (no containerd restart needed).
+NODE="${KIND_NODE:-${CLUSTER:-krci}-control-plane}"
+GL_CIP="$($KUBECTL -n "$GL_NS" get svc gitlab -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
+if [ -n "$GL_CIP" ] && command -v docker >/dev/null 2>&1 && docker inspect "$NODE" >/dev/null 2>&1; then
+  docker exec "$NODE" bash -c "
+    mkdir -p '/etc/containerd/certs.d/${GL_HOST}:5050'
+    cat > '/etc/containerd/certs.d/${GL_HOST}:5050/hosts.toml' <<EOF
+server = \"https://${GL_HOST}:5050\"
+[host.\"https://${GL_CIP}:5050\"]
+  capabilities = [\"pull\", \"resolve\"]
+  skip_verify = true
+EOF"
+  echo "    containerd certs.d -> ${GL_HOST}:5050 mirrors https://${GL_CIP}:5050 (skip_verify)"
+else
+  echo "    (warn) could not configure node containerd (node '$NODE' or ClusterIP missing); image pulls of deployed apps may fail"
 fi
 
 echo "==> Publishing the GitLab CA: secret custom-ca-certificates (kaniko) + cm gitlab-ca (operator)"
@@ -173,6 +213,9 @@ $KUBECTL -n "$NS" create configmap gitlab-ca --from-file=gitlab-ca.crt=/tmp/gitl
 rm -f /tmp/gitlab-ca.crt
 
 echo ""
-echo "==> gitlab-up done. GitLab UI: https://$GL_HOST (user root, password above; self-signed)."
+echo "==> gitlab-up done."
+echo "    GitLab UI : https://$GL_HOST   (self-signed cert)"
+echo "    User      : root"
+echo "    Password  : $GL_ROOT_PW   (local only — see 'make gitlab-password')"
 echo "    Next: 'make krci' renders the GitServer/EventListener/Ingress from values,"
 echo "          then 'make gitlab-integrate' applies the operator CA + task fixes + GitOps repo."

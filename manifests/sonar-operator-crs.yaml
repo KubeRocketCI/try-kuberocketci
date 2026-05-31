@@ -1,0 +1,161 @@
+# edp-sonar-operator custom resources — mirrors edp-cluster-add-ons/.../sonar-operator
+# templates (sonar.yaml, *group*, permission_template, qualitygate_edp, user_ci), with
+# OIDC/Keycloak DISABLED (no Keycloak locally) and explicit namespace `sonar`.
+# Applied by `make sonar` after the operator is installed; the operator reconciles them
+# against the SonarQube API using the sonar-admin-password secret (created earlier by
+# manifests/sonar-admin-secret.yaml, whose `password` the chart hook also sets on admin).
+---
+apiVersion: edp.epam.com/v1alpha1
+kind: Sonar
+metadata:
+  name: sonar
+  namespace: sonar
+spec:
+  url: http://sonar.sonar.svc:9000
+  secret: sonar-admin-password
+  defaultPermissionTemplate: edp-default
+  settings:
+    - key: sonar.dbcleaner.hoursBeforeKeepingOnlyOneSnapshotByDay
+      value: "20"
+    - key: sonar.auth.oidc.enabled
+      value: "false"
+---
+apiVersion: edp.epam.com/v1alpha1
+kind: SonarGroup
+metadata:
+  name: view-group
+  namespace: sonar
+spec:
+  name: "view-group"
+  description: "Browse access"
+  sonarRef:
+    name: sonar
+---
+apiVersion: edp.epam.com/v1alpha1
+kind: SonarGroup
+metadata:
+  name: sonar-developers
+  namespace: sonar
+spec:
+  name: "sonar-developers"
+  description: "Developers"
+  sonarRef:
+    name: sonar
+---
+apiVersion: edp.epam.com/v1alpha1
+kind: SonarPermissionTemplate
+metadata:
+  name: edp-default
+  namespace: sonar
+spec:
+  name: edp-default
+  description: "EDP permission templates"
+  projectKeyPattern: ".+"
+  default: true
+  groupsPermissions:
+    view-group:
+      - user
+    sonar-developers:
+      - user
+      - securityhotspotadmin
+      - issueadmin
+      - codeviewer
+    sonar-administrators:
+      - admin
+      - user
+      - securityhotspotadmin
+      - issueadmin
+      - codeviewer
+      - scan
+  sonarRef:
+    name: sonar
+---
+# LOCAL-ONLY permissive gate, set as the DEFAULT so the review pipeline's `sonar` task
+# (which runs the scanner with sonar.qualitygate.wait=true) passes on the throwaway
+# sample PR. The single condition can never trip (hotspots-reviewed % is never < 0), so
+# the gate is effectively always GREEN. The strict `EDP way` gate below is kept for
+# fidelity with edp-cluster-add-ons but is no longer the default.
+apiVersion: edp.epam.com/v1alpha1
+kind: SonarQualityGate
+metadata:
+  name: local-pass
+  namespace: sonar
+spec:
+  sonarRef:
+    name: sonar
+  name: Local pass
+  default: true
+  conditions:
+    new_security_hotspots_reviewed:
+      error: '0'
+      op: LT
+---
+apiVersion: edp.epam.com/v1alpha1
+kind: SonarQualityGate
+metadata:
+  name: edp-way
+  namespace: sonar
+spec:
+  sonarRef:
+    name: sonar
+  name: EDP way
+  default: false
+  conditions:
+    blocker_violations:
+      error: '0'
+      op: GT
+    critical_violations:
+      error: '0'
+      op: GT
+    new_coverage:
+      error: '80'
+      op: LT
+    new_duplicated_lines_density:
+      error: '3'
+      op: GT
+    new_maintainability_rating:
+      error: '1'
+      op: GT
+    new_reliability_rating:
+      error: '1'
+      op: GT
+    new_security_hotspots_reviewed:
+      error: '100'
+      op: LT
+    new_security_rating:
+      error: '1'
+      op: GT
+    test_errors:
+      error: '0'
+      op: GT
+    test_failures:
+      error: '0'
+      op: GT
+---
+# The SonarUser operator reads the user's password from this pre-existing secret (in
+# add-ons it's created by ESO). Without it the SonarUser CR errors "Secret ci-sonar not
+# found" and ci-user is never created.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ci-sonar
+  namespace: sonar
+type: Opaque
+stringData:
+  password: ci-user-local-pw
+---
+apiVersion: edp.epam.com/v1alpha1
+kind: SonarUser
+metadata:
+  name: sonar-ci-user
+  namespace: sonar
+spec:
+  secret: ci-sonar
+  login: ci-user
+  name: ci-user
+  groups:
+    - view-group
+  permissions:
+    - scan
+  sonarRef:
+    name: sonar

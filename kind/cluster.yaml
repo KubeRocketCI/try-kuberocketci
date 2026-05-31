@@ -6,6 +6,16 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: krci
+# Enable containerd's per-registry hosts.d config so the node can pull images from the
+# self-hosted GitLab registry. The deployed workloads reference
+# gitlab.127.0.0.1.nip.io:5050/... but containerd (on the node) resolves that host to
+# 127.0.0.1 (nip.io) — the CoreDNS split-horizon rewrite only helps in-cluster pods, not
+# the node's image pulls. scripts/gitlab-up.sh drops a hosts.toml under this path that
+# mirrors the registry host to the GitLab service ClusterIP (skip_verify for self-signed).
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
 nodes:
   - role: control-plane
     kubeadmConfigPatches:

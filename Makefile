@@ -15,7 +15,12 @@ HELM_REPO_URL      ?= https://epam.github.io/edp-helm-charts/stable
 INGRESS_NGINX_REF  ?= controller-v1.11.3
 CERT_MANAGER_VER   ?= v1.16.2
 CERT_MANAGER_MANIFEST ?= https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VER)/cert-manager.yaml
-ARGOCD_MANIFEST    ?= https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+# Argo CD (KRCI CD engine) — community chart. Latest 9.5.17 (appVersion v3.4.3);
+# edp-cluster-add-ons pins 9.5.13/v3.4.1. Single-instance values in values/argo-cd.yaml.
+ARGOCD_REPO_NAME   ?= argo
+ARGOCD_REPO_URL    ?= https://argoproj.github.io/argo-helm
+ARGOCD_CHART_VERSION ?= 9.5.17
+ARGOCD_NS          ?= argocd
 # Versions pinned to what KubeRocketCI docs specify for edp-tekton compatibility.
 TEKTON_PIPELINE    ?= https://storage.googleapis.com/tekton-releases/pipeline/previous/v1.6.0/release.yaml
 TEKTON_TRIGGERS    ?= https://storage.googleapis.com/tekton-releases/triggers/previous/v0.34.0/release.yaml
@@ -31,6 +36,18 @@ PROM_REPO_NAME     ?= prometheus-community
 PROM_REPO_URL      ?= https://prometheus-community.github.io/helm-charts
 PROM_CHART_VERSION ?= 84.5.0
 MONITORING_NS      ?= monitoring
+# SonarQube (KRCI code-quality engine) — chart from SonarSource; version pinned to what
+# edp-cluster-add-ons ships. Backed by our own minimal Postgres (like Tekton Results).
+# The KRCI sonar-operator (epamedp) + its CRs add the quality gate / ci-user.
+SONAR_REPO_NAME    ?= sonarqube
+SONAR_REPO_URL     ?= https://SonarSource.github.io/helm-chart-sonarqube
+SONAR_CHART_VERSION ?= 2025.3.1
+SONAR_OPERATOR_VERSION ?= 3.3.0
+SONAR_NS           ?= sonar
+# Predictable LOCAL-ONLY GitLab root password (seeded on first install). Override to taste.
+# NB: GitLab 17.x rejects passwords containing the app name ("gitlab") or the username
+# ("root") as "commonly used", so keep this clear of those words.
+GITLAB_ROOT_PASSWORD ?= KrciLocal_2026!
 VALUES             ?= values/edp-install.yaml
 KUBECTL            := kubectl --context $(CTX)
 
@@ -105,10 +122,30 @@ tekton: ## Install Tekton Pipelines + Triggers + interceptors
 	  deploy/tekton-pipelines-webhook deploy/tekton-triggers-webhook --timeout=300s
 
 .PHONY: argocd
-argocd: ## (optional) Install Argo CD for CD/deploy stages
-	$(KUBECTL) get ns argocd >/dev/null 2>&1 || $(KUBECTL) create ns argocd
-	$(KUBECTL) -n argocd apply -f $(ARGOCD_MANIFEST)
-	$(KUBECTL) -n argocd rollout status deploy/argocd-server --timeout=300s
+argocd: ## Install Argo CD (chart $(ARGOCD_CHART_VERSION), single instance) + krci AppProject
+	helm repo add $(ARGOCD_REPO_NAME) $(ARGOCD_REPO_URL) 2>/dev/null || true
+	helm repo update $(ARGOCD_REPO_NAME)
+	helm upgrade --install argocd $(ARGOCD_REPO_NAME)/argo-cd \
+	  --version $(ARGOCD_CHART_VERSION) -n $(ARGOCD_NS) --create-namespace \
+	  -f values/argo-cd.yaml --wait --timeout 600s
+	# AppProject can't be expressed in chart values; apply it here (argocd ns, self-contained).
+	$(KUBECTL) apply -f manifests/argocd-appproject-krci.yaml
+	# apps-in-any-namespace needs the appset controller to read applications/appprojects
+	# cluster-wide (the chart doesn't grant it) — see edp-cluster-add-ons rbac-hack.
+	$(KUBECTL) apply -f manifests/argocd-appset-rbac.yaml
+	$(KUBECTL) -n $(ARGOCD_NS) get pods
+	@echo "Argo CD UI: http://argocd.$(WILDCARD)   (user admin; 'make argocd-password')"
+
+.PHONY: argocd-integrate
+argocd-integrate: ## (post-krci) Register the GitLab repo creds + create the ci-argocd secret in ns krci
+	ARGOCD_REPO_NAME='$(ARGOCD_REPO_NAME)' ARGOCD_REPO_URL='$(ARGOCD_REPO_URL)' \
+	  ARGOCD_CHART_VERSION='$(ARGOCD_CHART_VERSION)' ARGOCD_NS='$(ARGOCD_NS)' \
+	  bash scripts/argocd-integrate.sh
+
+.PHONY: argocd-password
+argocd-password: ## Print the Argo CD initial admin password
+	@$(KUBECTL) -n $(ARGOCD_NS) get secret argocd-initial-admin-secret \
+	  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d; echo
 
 # ---- KubeRocketCI -----------------------------------------------------------
 .PHONY: repo
@@ -155,6 +192,38 @@ tekton-results: ## Install Tekton Results (v0.17.2, KRCI manifest) + minimal Pos
 	$(KUBECTL) -n $(TEKTON_NS) get pods | grep -E 'results|NAME'
 	@echo "Tekton Results API: http://tekton-results.$(WILDCARD)  (set TEKTON_RESULTS_URL to this)"
 
+.PHONY: sonar
+sonar: repo ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres + sonar-operator + CRs
+	# 1) our own minimal Postgres (fulfils the add-ons sonar-primary / sonar-pguser-sonar
+	# contract), then 2) SonarQube (external jdbc -> that Postgres), then 3) the KRCI
+	# sonar-operator + its CRs (Sonar/Group/PermissionTemplate/QualityGate/User).
+	$(KUBECTL) apply -f manifests/sonar-postgres.yaml
+	$(KUBECTL) -n $(SONAR_NS) rollout status deploy/sonar-primary --timeout=300s
+	# Admin secret BEFORE the chart install: the post-install hook reads it to change the
+	# default admin password on first startup (no manual first-login change), and the
+	# sonar-operator authenticates with the same secret.
+	$(KUBECTL) apply -f manifests/sonar-admin-secret.yaml
+	helm repo add $(SONAR_REPO_NAME) $(SONAR_REPO_URL) 2>/dev/null || true
+	helm repo update $(SONAR_REPO_NAME)
+	helm upgrade --install sonar $(SONAR_REPO_NAME)/sonarqube \
+	  --version $(SONAR_CHART_VERSION) -n $(SONAR_NS) --create-namespace \
+	  -f values/sonarqube.yaml --wait --timeout 900s
+	helm upgrade --install sonar-operator $(HELM_REPO_NAME)/sonar-operator \
+	  --version $(SONAR_OPERATOR_VERSION) -n $(SONAR_NS) --wait --timeout 300s
+	$(KUBECTL) apply -f manifests/sonar-operator-crs.yaml
+	$(KUBECTL) -n $(SONAR_NS) get pods
+	@echo "SonarQube UI: http://sonar.$(WILDCARD)  (user admin; 'make sonar-password')"
+
+.PHONY: sonar-integrate
+sonar-integrate: ## (post-krci) Mint a token + create the ci-sonarqube secret in ns krci
+	bash scripts/sonar-integrate.sh
+
+.PHONY: sonar-password
+sonar-password: ## Print the SonarQube admin credentials (local default)
+	@$(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password \
+	  -o jsonpath='{.data.user}' | base64 -d; echo -n " / "; \
+	  $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo
+
 # ---- access -----------------------------------------------------------------
 .PHONY: token
 token: ## Mint a 24h cluster-admin token for Portal login (local only)
@@ -175,6 +244,13 @@ status: ## Show cluster + KubeRocketCI status
 	@echo "--- krci pods ---"; $(KUBECTL) -n $(NS) get pods
 	@echo "--- ingresses ---"; $(KUBECTL) -n $(NS) get ingress
 	@echo "--- monitoring ---"; $(KUBECTL) -n $(MONITORING_NS) get pods 2>/dev/null || echo "(not installed)"
+	@echo "--- argocd ---"; $(KUBECTL) -n $(ARGOCD_NS) get pods 2>/dev/null || echo "(not installed)"
+	@$(KUBECTL) -n $(ARGOCD_NS) get ingress argocd-server >/dev/null 2>&1 && { echo -n "    Argo CD UI: http://argocd.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(ARGOCD_NS) get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo " — local only)"; } || true
+	@echo "--- sonar ---"; $(KUBECTL) -n $(SONAR_NS) get pods 2>/dev/null || echo "(not installed)"
+	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && { echo -n "    SonarQube UI: http://sonar.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo " — local only)"; } || true
+	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && echo "    KRCI integration: secret/ci-sonarqube present (ns $(NS))" || echo "    KRCI integration: ci-sonarqube MISSING (run make sonar-integrate)"
+	@echo "--- gitlab ---"; $(KUBECTL) -n gitlab get pods 2>/dev/null | grep -E 'gitlab|NAME' || echo "(not installed)"
+	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "    GitLab UI: https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo " — local only)"; } || true
 	@echo "--- tekton-results ---"; $(KUBECTL) -n $(TEKTON_NS) get pods 2>/dev/null | grep -E 'results' || echo "(not installed)"
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    Results API: http://tekton-results.$(WILDCARD)" || true
 	@echo "--- portal env (run Portal from source with these) ---"
@@ -189,7 +265,12 @@ status: ## Show cluster + KubeRocketCI status
 # + GitOps repo). `make testbed` chains them in the right order.
 .PHONY: gitlab-up
 gitlab-up: ## (pre-krci) Deploy GitLab + bootstrap creds/secrets + CoreDNS
-	bash scripts/gitlab-up.sh
+	GITLAB_ROOT_PASSWORD='$(GITLAB_ROOT_PASSWORD)' bash scripts/gitlab-up.sh
+
+.PHONY: gitlab-password
+gitlab-password: ## Print the GitLab root credentials (local only)
+	@echo -n "root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password \
+	  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d; echo
 
 .PHONY: gitlab-integrate
 gitlab-integrate: ## (post-krci) operator CA trust + gitlab-set-status fix + GitOps repo
@@ -202,6 +283,7 @@ e2e: ## Validate end-to-end: trigger a review pipeline; PASS = green except sona
 .PHONY: gitlab-status
 gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 	@echo "--- gitlab pod ---";    $(KUBECTL) -n gitlab get pods 2>/dev/null || echo "(not installed)"
+	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "    GitLab UI: https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo " — local only)"; } || true
 	@echo "--- gitserver ---";     $(KUBECTL) -n $(NS) get gitserver gitlab -o jsonpath='{.status}' 2>/dev/null; echo
 	@echo "--- eventlistener ---"; $(KUBECTL) -n $(NS) get eventlistener edp-gitlab 2>/dev/null || echo "(none yet)"
 	@echo "--- el ingress ---";    $(KUBECTL) -n $(NS) get ingress event-listener-gitlab 2>/dev/null || echo "(none yet)"
@@ -210,14 +292,14 @@ gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 
 # ---- lifecycle --------------------------------------------------------------
 .PHONY: up
-up: preflight cluster ingress cert-manager tekton ## Platform prerequisites (cluster + ingress + cert-manager + Tekton; no KRCI yet)
+up: preflight cluster ingress cert-manager tekton argocd ## Platform prerequisites (cluster + ingress + cert-manager + Tekton + Argo CD; no KRCI yet)
 	@echo "Prerequisites up. Next: make testbed (adds deps + GitLab, then installs KRCI last)."
 
 # Dependencies first, KRCI platform LAST (with values that wire it to them), then
-# the post-install glue. Prerequisites build left-to-right:
-#   up -> prometheus -> tekton-results -> gitlab-up -> krci -> gitlab-integrate
+# the post-install glue. Prerequisites build left-to-right (up installs Argo CD too):
+#   up -> prometheus -> tekton-results -> sonar -> gitlab-up -> krci -> gitlab-integrate -> argocd-integrate -> sonar-integrate
 .PHONY: testbed
-testbed: up prometheus tekton-results gitlab-up krci gitlab-integrate ## Full platform: deps first, KRCI (with gitServers/registry values) last
+testbed: up prometheus tekton-results sonar gitlab-up krci gitlab-integrate argocd-integrate sonar-integrate ## Full platform: deps first, KRCI (with gitServers/registry values) last
 	@echo "Full platform up. KRCI installed last; GitServer/EventListener rendered from values. Validate: make e2e"
 
 .PHONY: down

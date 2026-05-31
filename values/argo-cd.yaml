@@ -1,0 +1,75 @@
+# Argo CD values for LOCAL kind testing — KubeRocketCI CD engine.
+# Chart: argo/argo-cd 9.5.17 (appVersion v3.4.3) from https://argoproj.github.io/argo-helm
+# Mirrors the intent of edp-cluster-add-ons/clusters/core/addons/argo-cd (which pins
+# 9.5.13/v3.4.1), but trimmed to a SINGLE-INSTANCE footprint for an 8GB laptop.
+#
+# KRCI docs: https://docs.kuberocketci.io/docs/operator-guide/cd/argocd-integration
+# KRCI uses Argo CD HA shared across tenants; here we run one replica of each
+# component + a single Redis. The host-specific repo creds + the argocd-ci
+# integration secret are wired LATER by scripts/argocd-integrate.sh (post-krci).
+
+global:
+  domain: argocd.127.0.0.1.nip.io
+
+# --- single-deployment footprint -------------------------------------------------
+# Leaves only: application-controller + server + repo-server + redis (4 pods).
+# applicationSet is already disabled by default in this chart.
+dex:
+  enabled: false          # no SSO/Keycloak locally
+notifications:
+  enabled: false          # no notifications controller
+applicationSet:
+  # REQUIRED for KRCI deploys: the cd-pipeline-operator renders an Argo CD
+  # ApplicationSet (named after the CDPipeline) in the `krci` namespace whose
+  # generators it fills per Stage; the ApplicationSet controller turns those into
+  # Applications. With it scaled to 0 the CD pipeline's deploy never produces an
+  # Application (Stage looks fine but nothing syncs). Keep 1 replica.
+  replicas: 1
+# redis-ha stays disabled (chart default) -> single redis node.
+
+configs:
+  # argocd-cmd-params-cm
+  params:
+    # KRCI-CRITICAL: the cd-pipeline-operator creates Argo CD Application CRs in the
+    # `krci` namespace (apps-in-any-namespace). Without this the controller/server
+    # only watch the argocd ns and KRCI's Applications are invisible.
+    application.namespaces: krci
+    # Same apps-in-any-namespace for ApplicationSets: KRCI puts the ApplicationSet in
+    # the `krci` namespace, so the ApplicationSet controller must watch it too (else the
+    # appset is ignored and no Application is generated for the deploy).
+    applicationsetcontroller.namespaces: krci
+    # Apps-in-any-namespace for ApplicationSets REQUIRES disabling SCM providers (or an
+    # allowlist), else the appset controller refuses to start. We don't use SCM generators.
+    applicationsetcontroller.enable.scm.providers: "false"
+    # Serve plain HTTP so the nginx ingress can terminate without TLS passthrough.
+    server.insecure: true
+
+  # argocd-cm
+  cm:
+    # A local account whose non-expiring API token scripts/argocd-integrate.sh mints
+    # and stores in the `argocd-ci` secret (ns krci) for KRCI to call the Argo CD API.
+    accounts.krci-ci: apiKey
+    # Don't track Tekton run churn (PipelineRun/TaskRun) as Argo CD resources.
+    resource.exclusions: |
+      - apiGroups:
+        - tekton.dev
+        kinds:
+        - PipelineRun
+        - TaskRun
+        clusters:
+        - "*"
+
+  # argocd-rbac-cm — map the krci-ci API account to the built-in admin role so the
+  # cd-pipeline-operator can manage Applications/Projects via its token (local only).
+  rbac:
+    policy.csv: |
+      g, krci-ci, role:admin
+
+# --- ingress (HTTP; pairs with server.insecure) ----------------------------------
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hostname: argocd.127.0.0.1.nip.io
+    path: /
+    pathType: Prefix

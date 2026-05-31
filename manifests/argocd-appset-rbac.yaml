@@ -1,0 +1,42 @@
+# RBAC hack required for apps-in-any-namespace: with the ApplicationSet controller
+# watching the `krci` namespace (applicationsetcontroller.namespaces=krci), it must be
+# able to list/watch/manage Applications + ApplicationSets at CLUSTER scope, which the
+# argo-cd chart does NOT grant. Without it the controller logs:
+#   applications.argoproj.io is forbidden: ... cannot list resource "applications" at the cluster scope
+# Verbatim from edp-cluster-add-ons (argo-cd/templates/rbac-hack). Applied by `make argocd`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-applicationset-admin
+rules:
+  - verbs: ["create", "patch"]
+    apiGroups: ['']
+    resources: ["events"]
+  - verbs: ["get", "list", "watch"]
+    apiGroups: ['']
+    resources: ["secrets"]
+  - verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+    apiGroups: ["argoproj.io"]
+    resources: ["applications", "applicationsets/status"]
+  - verbs: ["get", "list", "patch", "update", "watch"]
+    apiGroups: ["argoproj.io"]
+    resources: ["applicationsets"]
+  # Newer Argo CD (v3.4.x) also has the appset controller watch AppProjects cluster-wide
+  # to validate the generated Application's project; the upstream add-ons hack predates
+  # this, so we add it here.
+  - verbs: ["get", "list", "watch"]
+    apiGroups: ["argoproj.io"]
+    resources: ["appprojects"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-applicationset-admin
+subjects:
+  - kind: ServiceAccount
+    name: argocd-applicationset-controller
+    namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argocd-applicationset-admin

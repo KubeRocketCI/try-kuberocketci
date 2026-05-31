@@ -3,10 +3,10 @@
 #
 # Fully automated (no manual/UI steps): provisions the sample Codebase, opens a
 # GitLab merge request via the API, waits for the triggered review PipelineRun,
-# and asserts it is GREEN EXCEPT the `sonar` task (which needs a SonarQube
-# instance that this testbed intentionally does not deploy).
+# and asserts it is FULLY GREEN — including the `sonar` task, now that SonarQube is
+# deployed (make sonar / sonar-integrate) with a permissive local default quality gate.
 #
-# Exit 0 = PASS (review pipeline green except sonar), non-zero = FAIL.
+# Exit 0 = PASS (review pipeline fully green), non-zero = FAIL.
 #
 # Note on duplicates: GitLab delivers the merge_request webhook twice (open, then
 # an update as it recomputes merge status); both match the chart's gitlab-review
@@ -82,7 +82,9 @@ for _ in $(seq 1 90); do
   sleep 8
 done
 
-# Classify each run: GREEN_EXCEPT_SONAR | DUP_REPORT_FAIL | BAD:<failed tasks>
+# Classify each run: ALL_GREEN | DUP_REPORT_FAIL | BAD:<failed tasks>
+# (GitLab delivers the MR webhook twice -> two runs; the duplicate fails fast at
+# report-pipeline-start posting the same commit-status context, which is expected.)
 say "Evaluating per-task results"
 verdict_seen=""
 green_found=0
@@ -97,25 +99,24 @@ for it in d['items']:
     conds=it.get('status',{}).get('conditions') or [{}]
     res[t]=conds[0].get('status')
 failed=sorted(t for t,s in res.items() if s=='False')
-report_ok = res.get('report-pipeline-start-to-gitlab')=='True'
-if failed==['sonar'] and report_ok:
-    print('GREEN_EXCEPT_SONAR')
-elif failed and all(f in ('report-pipeline-start-to-gitlab','gitlab-set-failure-status') for f in failed):
+if not failed:
+    print('ALL_GREEN')
+elif all(f in ('report-pipeline-start-to-gitlab','gitlab-set-failure-status') for f in failed):
     print('DUP_REPORT_FAIL')
 else:
-    print('BAD:'+(','.join(failed) or 'none'))
+    print('BAD:'+','.join(failed))
 ")"
   echo "    $name -> $cls"
   verdict_seen="$verdict_seen $cls"
-  [ "$cls" = "GREEN_EXCEPT_SONAR" ] && green_found=1
+  [ "$cls" = "ALL_GREEN" ] && green_found=1
 done
 
 for v in $verdict_seen; do
   case "$v" in
-    GREEN_EXCEPT_SONAR|DUP_REPORT_FAIL) ;;
-    *) fail "a run failed on an unexpected task ($v) — pipeline is not green-except-sonar" ;;
+    ALL_GREEN|DUP_REPORT_FAIL) ;;
+    *) fail "a run failed on an unexpected task ($v) — pipeline is not fully green" ;;
   esac
 done
-[ "$green_found" = "1" ] || fail "no run reached the expected 'green except sonar' state"
+[ "$green_found" = "1" ] || fail "no run reached the expected fully-green state (incl. the sonar task)"
 
-echo "E2E RESULT: PASS — review pipeline is green except the sonar task (SonarQube not deployed; next phase)."
+echo "E2E RESULT: PASS — review pipeline is fully green (including the sonar quality-gate task)."
