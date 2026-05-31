@@ -1,0 +1,207 @@
+# Phase 2: self-hosted GitLab CE (single omnibus pod) for KubeRocketCI testing.
+# Tuned down for a laptop. Boots slowly (3-6 min). Needs Docker >= 12GB.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitlab
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-data
+  namespace: gitlab
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+# /etc/gitlab holds gitlab-secrets.json (the DB encryption keys). It must persist
+# across pod restarts, otherwise each restart regenerates the keys while the DB
+# (on gitlab-data) keeps rows encrypted under the OLD keys -> OpenSSL CipherError
+# when GitLab reads encrypted columns (e.g. ApplicationSetting).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-config
+  namespace: gitlab
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab
+  namespace: gitlab
+spec:
+  replicas: 1
+  # GitLab's first boot (reconfigure + migrations) routinely exceeds the 600s
+  # default, which would flip the Deployment to ProgressDeadlineExceeded and make
+  # `kubectl rollout status` fail spuriously. Give it room.
+  progressDeadlineSeconds: 1200
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      containers:
+        - name: gitlab
+          image: gitlab/gitlab-ce:17.5.1-ce.0
+          env:
+            - name: GITLAB_OMNIBUS_CONFIG
+              value: |
+                # HTTPS is REQUIRED: the codebase-operator's GitLab REST client
+                # always uses https:// (the GitServer CRD only has httpsPort, no
+                # scheme), so an HTTP-only GitLab fails project/webhook creation
+                # with "server gave HTTP response to HTTPS client". We serve TLS
+                # directly on the omnibus with a self-signed cert (mounted secret
+                # gitlab-tls at /etc/gitlab-tls) so SSH (32222) and the HTTPS API
+                # share one host and the single CoreDNS rewrite still works.
+                external_url 'https://gitlab.127.0.0.1.nip.io'
+                nginx['listen_port'] = 443
+                nginx['listen_https'] = true
+                nginx['ssl_certificate'] = '/etc/gitlab-tls/tls.crt'
+                nginx['ssl_certificate_key'] = '/etc/gitlab-tls/tls.key'
+                nginx['redirect_http_to_https'] = false
+                gitlab_rails['gitlab_shell_ssh_port'] = 32222
+                # The kubelet readiness probe hits /-/health from the pod-network
+                # gateway (10.244.0.1), which GitLab blocks by default (monitoring
+                # endpoints are restricted to 127.0.0.0/8). Whitelist the pod CIDR
+                # so the probe gets 200 instead of 404.
+                gitlab_rails['monitoring_whitelist'] = ['127.0.0.0/8', '::1/128', '10.244.0.0/16']
+                # --- tiniest footprint for local testing ---
+                # Puma in single mode (no cluster workers) = lowest RSS.
+                puma['worker_processes'] = 0
+                puma['min_threads'] = 1
+                puma['max_threads'] = 4
+                # Minimal Sidekiq concurrency.
+                sidekiq['max_concurrency'] = 5
+                # Shrink the bundled Postgres.
+                postgresql['shared_buffers'] = "128MB"
+                postgresql['max_worker_processes'] = 4
+                # Kill every monitoring/exporter subprocess.
+                prometheus_monitoring['enable'] = false
+                prometheus['enable'] = false
+                alertmanager['enable'] = false
+                node_exporter['enable'] = false
+                redis_exporter['enable'] = false
+                postgres_exporter['enable'] = false
+                gitlab_exporter['enable'] = false
+                # (grafana was removed from omnibus in 16.0 — no key to disable.)
+                # Container Registry (reused as KubeRocketCI's image registry).
+                # Served on :5050 over TLS with the same self-signed cert; in-cluster
+                # build pods push to gitlab.127.0.0.1.nip.io:5050/<group>/<project>.
+                registry['enable'] = true
+                registry_external_url 'https://gitlab.127.0.0.1.nip.io:5050'
+                registry_nginx['ssl_certificate'] = '/etc/gitlab-tls/tls.crt'
+                registry_nginx['ssl_certificate_key'] = '/etc/gitlab-tls/tls.key'
+                # Disable features we don't use locally.
+                gitlab_kas['enable'] = false
+                gitlab_pages['enable'] = false
+                mattermost['enable'] = false
+          ports:
+            - containerPort: 443
+              name: https
+            - containerPort: 22
+              name: ssh
+            - containerPort: 5050
+              name: registry
+          readinessProbe:
+            httpGet:
+              path: /-/health
+              port: 443
+              scheme: HTTPS
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 80
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/opt/gitlab
+            - name: config
+              mountPath: /etc/gitlab
+            - name: tls
+              mountPath: /etc/gitlab-tls
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gitlab-data
+        - name: config
+          persistentVolumeClaim:
+            claimName: gitlab-config
+        - name: tls
+          secret:
+            # Self-signed cert for gitlab.127.0.0.1.nip.io, created by scripts/gitlab.sh
+            # before this Deployment is applied.
+            secretName: gitlab-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab
+  namespace: gitlab
+spec:
+  selector:
+    app: gitlab
+  ports:
+    - name: https
+      port: 443
+      targetPort: 443
+    - name: ssh
+      port: 22
+      targetPort: 22
+    # GitLab advertises clone URLs on 32222 (gitlab_shell_ssh_port), and the
+    # GitServer CR sets sshPort: 32222. The codebase-operator's SSH connection
+    # check + git clone dial gitlab.<wildcard>:32222 (CoreDNS -> this svc), so
+    # the Service must expose 32222 -> the in-container sshd on 22.
+    - name: ssh-ext
+      port: 32222
+      targetPort: 22
+    # Container registry (registry_external_url …:5050). In-cluster build pods
+    # reach gitlab.127.0.0.1.nip.io:5050 (CoreDNS → this svc) to push images.
+    - name: registry
+      port: 5050
+      targetPort: 5050
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitlab
+  namespace: gitlab
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "512m"
+    # GitLab now terminates TLS itself on 443; ingress-nginx must re-encrypt to
+    # the backend rather than speak plaintext.
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - gitlab.127.0.0.1.nip.io
+      secretName: gitlab-tls
+  rules:
+    - host: gitlab.127.0.0.1.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gitlab
+                port:
+                  number: 443

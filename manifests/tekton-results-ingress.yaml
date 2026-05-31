@@ -1,0 +1,28 @@
+# Ingress for the Tekton Results API so the Portal can read PipelineRun history at
+# a stable nip.io URL (TEKTON_RESULTS_URL=http://tekton-results.127.0.0.1.nip.io)
+# instead of `make results-forward` port-forwarding.
+#
+# The API serves its REST (gRPC-gateway) endpoints on :8080 over plain HTTP (the
+# KRCI Results manifest disables TLS), so a plain HTTP ingress works. AUTH_DISABLE
+# is on, so no auth — fine for a local testbed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tekton-results-api
+  namespace: tekton-pipelines
+  annotations:
+    # Results responses (logs, large record lists) can be big; don't cap the body.
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: tekton-results.127.0.0.1.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tekton-results-api-service
+                port:
+                  number: 8080

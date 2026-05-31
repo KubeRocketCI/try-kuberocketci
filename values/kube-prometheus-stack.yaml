@@ -1,0 +1,26 @@
+# kube-prometheus-stack values for local kind.
+# Chart: prometheus-community/kube-prometheus-stack v84.5.0 (appVersion v0.90.1)
+# Mirrors edp-cluster-add-ons/clusters/core/addons/prometheus-operator/values.yaml
+# (there nested under the `prometheus-operator` alias; root-level here).
+
+crds:
+  enabled: true
+
+prometheus:
+  prometheusSpec:
+    # Pick up ALL ServiceMonitors/PodMonitors, not just Helm-labelled ones — so
+    # Tekton Results' ServiceMonitor and any KRCI component metrics are scraped.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    # Small footprint for a laptop kind cluster; ephemeral (no PVC).
+    retention: 7d
+    resources: {}
+
+grafana:
+  enabled: true
+  # Local-only default admin password (matches the add-ons repo default).
+  adminPassword: prom-operator
+
+# Keep the footprint small on kind — no Alertmanager.
+alertmanager:
+  enabled: false

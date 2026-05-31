@@ -1,0 +1,41 @@
+# End-to-end test of the GitLab webhook integration.
+#
+# Applying this makes the codebase-operator:
+#   1. create the GitLab project krci/test-go-app (scaffolded from the go-gin
+#      application template, since emptyProject: false) under the 'krci' group
+#      (provisioned by scripts/gitlab.sh) rather than root's personal namespace,
+#   2. create a project webhook pointing at the edp-gitlab EventListener
+#      (ingress http://el-gitlab-krci.127.0.0.1.nip.io) with the X-Gitlab-Token
+#      taken from the ci-gitlab secret's `secretString` key.
+#
+# A push to the default branch (or the CodebaseBranch below) then triggers the
+# gitlab-go-gin-app-build-default pipeline via the gitlab ClusterInterceptor.
+apiVersion: v2.edp.epam.com/v1
+kind: Codebase
+metadata:
+  name: test-go-app
+  namespace: krci
+spec:
+  type: application
+  lang: go
+  framework: gin
+  buildTool: go
+  ciTool: tekton
+  strategy: create
+  emptyProject: false
+  defaultBranch: main
+  gitServer: gitlab
+  gitUrlPath: /krci/test-go-app
+  deploymentScript: helm-chart
+  versioning:
+    type: default
+---
+apiVersion: v2.edp.epam.com/v1
+kind: CodebaseBranch
+metadata:
+  name: test-go-app-main
+  namespace: krci
+spec:
+  codebaseName: test-go-app
+  branchName: main
+  release: false

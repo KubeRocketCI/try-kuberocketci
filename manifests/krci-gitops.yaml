@@ -1,0 +1,47 @@
+# KubeRocketCI GitOps repository, provisioned declaratively (the Portal's
+# "Add GitOps repository" produces exactly this Codebase + CodebaseBranch).
+#
+# A GitOps repo must exist before Deployments/CD pipelines can be created — the
+# deploy flow commits Helm values here. It is a `system` codebase (labels
+# app.edp.epam.com/codebaseType=system + systemType=gitops) of lang/framework
+# helm/gitops, so — unlike an application codebase — it does NOT create a
+# CodebaseImageStream and therefore needs no container registry to go green.
+#
+# strategy: create scaffolds the gitops Helm template into krci/krci-gitops and
+# the codebase-operator wires the project webhook (same path as any Codebase).
+apiVersion: v2.edp.epam.com/v1
+kind: Codebase
+metadata:
+  name: krci-gitops
+  namespace: krci
+  labels:
+    app.edp.epam.com/codebaseType: system
+    app.edp.epam.com/systemType: gitops
+spec:
+  type: system
+  lang: helm
+  framework: gitops
+  buildTool: helm
+  ciTool: tekton
+  strategy: create
+  emptyProject: false
+  defaultBranch: main
+  gitServer: gitlab
+  gitUrlPath: /krci/krci-gitops
+  deploymentScript: helm-chart
+  private: false
+  versioning:
+    type: semver
+    startFrom: 0.1.0-SNAPSHOT
+---
+apiVersion: v2.edp.epam.com/v1
+kind: CodebaseBranch
+metadata:
+  name: krci-gitops-main
+  namespace: krci
+spec:
+  codebaseName: krci-gitops
+  branchName: main
+  # Required for semver versioning (matches spec.versioning.startFrom).
+  version: 0.1.0-SNAPSHOT
+  release: false

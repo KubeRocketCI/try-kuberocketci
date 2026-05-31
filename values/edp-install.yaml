@@ -1,0 +1,57 @@
+# KubeRocketCI (edp-install) values for LOCAL kind testing.
+# Chart: epamedp/edp-install 3.13.5  (verified against the chart's own values.yaml)
+#
+# Stack that comes up with these values:
+#   codebase-operator, cd-pipeline-operator, edp-tekton (pipelines library),
+#   gitfusion, krci-portal (in-cluster). Legacy edp-headlamp + gerrit stay off.
+# Argo CD, a container registry, and GitLab are added in later phases.
+
+global:
+  # kubernetes (not openshift)
+  platform: "kubernetes"
+  # Wildcard DNS -> every ingress host becomes <name>.127.0.0.1.nip.io and
+  # resolves to localhost, where the kind NGINX ingress listens on 80/443.
+  dnsWildCard: "127.0.0.1.nip.io"
+
+  # Git providers the platform manages. Default github for milestone 1; we switch
+  # to gitlab in the git phase (scripts/gitlab.sh).
+  gitProviders:
+    - gitlab
+
+  # Container registry used by build pipelines to push images. We reuse the
+  # self-hosted GitLab Container Registry (on :5050). KRCI has no "gitlab" type,
+  # so we declare it as a generic private registry ("harbor"): kaniko just pushes
+  # to <url>/<space>/<codebase>. With space=krci that maps to each codebase's own
+  # GitLab project registry (krci/<codebase>). Requires `make gitlab` first.
+  dockerRegistry:
+    type: "harbor"
+    url: "gitlab.127.0.0.1.nip.io:5050"
+    space: "krci"
+
+# edp-tekton (pipelines library): tell the kaniko build task that the registry
+# uses a custom (self-signed) certificate. This flips `custom_certs=true` in the
+# kaniko task and mounts the CA at /kaniko/.custom-certs/ca.crt from the secret
+# `custom-ca-certificates` (key ca.crt) — which scripts/gitlab.sh creates from
+# the GitLab self-signed CA. Without it, kaniko push fails TLS verification.
+edp-tekton:
+  kaniko:
+    customCert: true
+
+# We are NOT using External Secrets Operator locally. Disable it AND the
+# install-secret management so the chart does not create ExternalSecret objects
+# that would never resolve (no AWS/SecretStore in a kind cluster).
+externalSecrets:
+  enabled: false
+  manageEDPInstallSecrets: false
+
+# In-cluster Portal is DISABLED on purpose — we run the Portal FROM SOURCE
+# (../portal/krci-portal, `pnpm dev`) against this cluster instead. Why not the
+# released image:
+#   1. It needs a reachable OIDC issuer (the user idToken becomes the kube bearer),
+#      which kind doesn't have. The source run uses a local dev-bypass instead.
+#   2. The released arm64 image crashes on this runtime: better_sqlite3.node
+#      "unsupported relocation type 7" / ERR_DLOPEN_FAILED. The native module
+#      builds fine when run from source on the host.
+# See README "Portal (run from source)".
+krci-portal:
+  enabled: false

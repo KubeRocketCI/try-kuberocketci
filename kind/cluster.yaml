@@ -1,0 +1,23 @@
+# kind cluster for the KubeRocketCI local test harness.
+# Single node, control-plane also schedules workloads.
+# Ports 80/443 are mapped to localhost so the NGINX ingress (and thus the
+# KubeRocketCI Portal / GitLab) is reachable from the host browser at
+# *.127.0.0.1.nip.io
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: krci
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
