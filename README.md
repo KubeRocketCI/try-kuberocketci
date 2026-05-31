@@ -115,6 +115,34 @@ TEKTON_RESULTS_URL=http://tekton-results.127.0.0.1.nip.io
 
 `make results-forward` (localhost:8080) is still available as a fallback.
 
+For **repository discovery** (listing GitLab groups/projects/branches/PRs when you
+onboard a Codebase), the Portal calls **gitfusion**. The chart now renders a
+gitfusion ingress (`gitfusion.ingress` in `values/edp-install.yaml`), so point the
+Portal at it — same idea as the Results URL:
+
+```bash
+# krci-portal/.env:
+GITFUSION_URL=http://gitfusion.127.0.0.1.nip.io
+```
+
+> gitfusion talks to GitLab over **HTTPS with the self-signed cert**, so it must
+> trust the GitLab CA. The chart mounts `cm gitlab-ca` into gitfusion declaratively
+> (`gitfusion.volumes`/`volumeMounts` in `values/edp-install.yaml`), applied at
+> `make krci` time — so it trusts the CA on first start. Without it, discovery fails
+> with x509 "unknown authority" even though the URL is reachable.
+
+For the **Stage Monitoring** tab (deployment metrics), the Portal queries
+**Prometheus**. `make prometheus` renders an ingress (`prometheus.ingress` in
+`values/kube-prometheus-stack.yaml`), so point the Portal at it:
+
+```bash
+# krci-portal/.env:
+PROMETHEUS_URL=http://prometheus.127.0.0.1.nip.io
+```
+
+`make status` prints all three (`TEKTON_RESULTS_URL`, `GITFUSION_URL`,
+`PROMETHEUS_URL`) under "portal env" so you can copy them straight into `.env`.
+
 ## Self-hosted GitLab + webhook integration
 
 A single-pod GitLab CE is wired so a GitLab **merge request** triggers a

@@ -177,6 +177,10 @@ status: ## Show cluster + KubeRocketCI status
 	@echo "--- monitoring ---"; $(KUBECTL) -n $(MONITORING_NS) get pods 2>/dev/null || echo "(not installed)"
 	@echo "--- tekton-results ---"; $(KUBECTL) -n $(TEKTON_NS) get pods 2>/dev/null | grep -E 'results' || echo "(not installed)"
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    Results API: http://tekton-results.$(WILDCARD)" || true
+	@echo "--- portal env (run Portal from source with these) ---"
+	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    TEKTON_RESULTS_URL=http://tekton-results.$(WILDCARD)" || true
+	@$(KUBECTL) -n $(NS) get ingress gitfusion >/dev/null 2>&1 && echo "    GITFUSION_URL=http://gitfusion.$(WILDCARD)" || echo "    GITFUSION_URL=(gitfusion ingress not found — run make krci)"
+	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-kube-prometheus-prometheus >/dev/null 2>&1 && echo "    PROMETHEUS_URL=http://prometheus.$(WILDCARD)" || echo "    PROMETHEUS_URL=(prometheus ingress not found — run make prometheus)"
 
 # ---- self-hosted git --------------------------------------------------------
 # GitLab is a platform DEPENDENCY: gitlab-up runs BEFORE krci (so the chart can

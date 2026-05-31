@@ -7,6 +7,18 @@ crds:
   enabled: true
 
 prometheus:
+  # Expose the Prometheus API at a stable nip.io URL so the Portal (run from source)
+  # can fetch deployment metrics for the Stage Monitoring tab — same pattern as the
+  # Tekton Results / gitfusion ingresses. Portal env: PROMETHEUS_URL=http://prometheus.127.0.0.1.nip.io
+  # Plain HTTP, no auth (local testbed only). Service is prometheus-kube-prometheus-prometheus:9090.
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - prometheus.127.0.0.1.nip.io
+    paths:
+      - /
+    pathType: Prefix
   prometheusSpec:
     # Pick up ALL ServiceMonitors/PodMonitors, not just Helm-labelled ones — so
     # Tekton Results' ServiceMonitor and any KRCI component metrics are scraped.

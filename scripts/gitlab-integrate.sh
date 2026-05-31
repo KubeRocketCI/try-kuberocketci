@@ -2,7 +2,8 @@
 # Phase: post-KRCI integration. Runs AFTER `make krci` (needs the codebase-operator,
 # the edp-tekton tasks, and the chart-created GitServer/EventListener to exist).
 # Pairs with scripts/gitlab-up.sh. Only the bits the Helm chart cannot express:
-#   1. mount the GitLab CA into codebase-operator (no chart hook for volumes),
+#   1. mount the GitLab CA into codebase-operator (no chart hook for its volumes;
+#      gitfusion gets the same CA declaratively via gitfusion.volumes in values),
 #   2. fix the upstream gitlab-set-status task (host parse + self-signed TLS),
 #   3. onboard the krci-gitops Codebase (no `codebases` values section).
 # The GitServer/EventListener/Ingress themselves come from edp-tekton.gitServers.
@@ -31,6 +32,9 @@ echo "==> Trusting the GitLab self-signed CA in codebase-operator (cm gitlab-ca 
 OP_CN="$($KUBECTL -n "$NS" get deploy codebase-operator -o jsonpath='{.spec.template.spec.containers[0].name}')"
 $KUBECTL -n "$NS" patch deploy codebase-operator --type strategic -p "{\"spec\":{\"template\":{\"spec\":{\"volumes\":[{\"name\":\"gitlab-ca\",\"configMap\":{\"name\":\"gitlab-ca\"}}],\"containers\":[{\"name\":\"${OP_CN}\",\"volumeMounts\":[{\"name\":\"gitlab-ca\",\"mountPath\":\"/etc/ssl/certs/gitlab-ca.crt\",\"subPath\":\"gitlab-ca.crt\",\"readOnly\":true}]}]}}}}"
 $KUBECTL -n "$NS" rollout status deploy/codebase-operator --timeout=120s
+# (gitfusion gets the SAME GitLab CA, but DECLARATIVELY via gitfusion.volumes /
+# volumeMounts in values/edp-install.yaml — applied at `make krci` time, so it trusts
+# the CA on first start without a post-install patch. See that file for the rationale.)
 
 echo "==> Fixing the gitlab-set-status task (host parse + self-signed TLS)"
 # Upstream task mis-parses our ssh://…:32222/… git URL (-> host "ssh") and verifies

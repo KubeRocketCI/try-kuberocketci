@@ -58,6 +58,38 @@ edp-tekton:
         ingress:
           enabled: true
 
+# gitfusion serves the Portal's git-provider operations (repository discovery,
+# branch/PR listing) via a REST API on :8080. The Portal runs FROM SOURCE on the
+# host, so it needs to reach gitfusion at a stable nip.io URL — same pattern as the
+# Tekton Results ingress. Plain HTTP (the service is HTTP; auth is the kube token
+# the Portal already forwards). Point the Portal at this with GITFUSION_URL /
+# the portal's gitfusion endpoint env: http://gitfusion.127.0.0.1.nip.io
+gitfusion:
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: gitfusion.127.0.0.1.nip.io
+        paths:
+          - path: /
+            pathType: Prefix
+  # Trust the GitLab self-signed CA. gitfusion reaches GitLab over HTTPS with the
+  # self-signed cert, so without this its discovery calls fail x509 "unknown
+  # authority" (the symptom: Portal shows no repos). Declarative mount of cm
+  # `gitlab-ca` (created by scripts/gitlab-up.sh BEFORE this chart installs) at
+  # /etc/ssl/certs/gitlab-ca.crt — Go scans that dir on top of the system bundle, so
+  # public CAs still work. Applied at `make krci` time, so gitfusion trusts the CA on
+  # first start (no post-install patch / restart). Same CA the codebase-operator gets.
+  volumes:
+    - name: gitlab-ca
+      configMap:
+        name: gitlab-ca
+  volumeMounts:
+    - name: gitlab-ca
+      mountPath: /etc/ssl/certs/gitlab-ca.crt
+      subPath: gitlab-ca.crt
+      readOnly: true
+
 # We are NOT using External Secrets Operator locally. Disable it AND the
 # install-secret management so the chart does not create ExternalSecret objects
 # that would never resolve (no AWS/SecretStore in a kind cluster).
