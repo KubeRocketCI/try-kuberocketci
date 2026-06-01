@@ -277,8 +277,8 @@ gitlab-integrate: ## (post-krci) operator CA trust + gitlab-set-status fix + Git
 	bash scripts/gitlab-integrate.sh
 
 .PHONY: e2e
-e2e: ## Validate end-to-end: trigger a review pipeline; PASS = green except sonar
-	bash scripts/e2e-review.sh
+e2e: ## Validate end-to-end: MR -> review -> merge -> build -> deploy (demo/dev); PASS = all green + app deployed
+	bash scripts/e2e.sh
 
 .PHONY: gitlab-status
 gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state

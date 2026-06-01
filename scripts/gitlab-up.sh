@@ -106,11 +106,20 @@ echo "    Root login: user 'root' / password '$GL_ROOT_PW' (from secret gitlab-r
 echo "    (set on first DB seed; on an existing data PVC reset via:"
 echo "     kubectl -n $GL_NS exec $POD -- gitlab-rake \"gitlab:password:reset[root]\")"
 
-echo "==> Allowing webhooks to the local network (GitLab blocks them by default)"
+echo "==> Tuning instance settings (allow local webhooks; disable Auto DevOps)"
+# allow_local_requests…: GitLab blocks webhooks to private IPs by default, which would
+#   stop the merge_request hook reaching the in-cluster EventListener.
+# auto_devops_enabled=false: with it ON (GitLab's default), every codebase project the
+#   operator creates has no .gitlab-ci.yml, so GitLab auto-generates an "Auto DevOps"
+#   CI pipeline (build/test/code_quality/container_scanning/… ~8 jobs). There are no
+#   GitLab runners here, so those jobs hang "stuck" forever — pure noise next to the
+#   only status KRCI cares about, the "Review Pipeline" external commit status the
+#   gitlab-set-status task posts. Disabling the instance default means new projects
+#   inherit Auto DevOps OFF. (Existing projects inherit too, unless explicitly toggled.)
 $KUBECTL -n $GL_NS exec "$POD" -- gitlab-rails runner '
 s = ApplicationSetting.current
-s.update!(allow_local_requests_from_web_hooks_and_services: true)' >/dev/null 2>&1 || \
-  echo "    (warn) could not set allow_local_requests; set it in Admin -> Network -> Outbound requests"
+s.update!(allow_local_requests_from_web_hooks_and_services: true, auto_devops_enabled: false)' >/dev/null 2>&1 || \
+  echo "    (warn) could not update instance settings; set them in Admin -> Settings"
 
 echo "==> Provisioning the '$NS' group (Codebases live under it, not root's namespace)"
 $KUBECTL -n $GL_NS exec "$POD" -- gitlab-rails runner "

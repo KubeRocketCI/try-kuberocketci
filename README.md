@@ -21,7 +21,7 @@ Spin up the whole platform from scratch, two commands:
 
 ```bash
 make testbed     # ~18-20 min: all dependencies first, then KRCI installed LAST with values
-make e2e         # ~4 min:     triggers a review pipeline; PASS = green except the sonar task
+make e2e         # ~12 min:    MR -> review -> merge -> build -> deploy (demo/dev); PASS = all green + app deployed
 ```
 
 `make testbed` builds in dependency order and installs the KRCI platform last so the
@@ -119,7 +119,7 @@ make gitlab-up        # (pre-krci) deploy GitLab + bootstrap creds/secrets + Cor
 make gitlab-integrate # (post-krci) operator CA trust + gitlab-set-status fix + GitOps repo
 make gitlab-password  # print the GitLab root credentials (local default)
 make gitlab-status    # show GitLab pod / GitServer / EventListener / webhook state
-make e2e              # trigger a review pipeline; PASS = green except sonar
+make e2e              # MR -> review -> merge -> build -> deploy (demo/dev); PASS = all green + app deployed
 make down             # delete the kind cluster
 ```
 
@@ -216,14 +216,27 @@ chart can't express:
 8. **GitOps repo** `krci/krci-gitops` (`manifests/krci-gitops.yaml`) — a
    `system`/`helm`/`gitops` Codebase KubeRocketCI requires before Deployments.
 
-End-to-end test (`manifests/sample-codebase.yaml`):
+End-to-end test — `make e2e` (`scripts/e2e.sh`) drives the **whole CI→CD lifecycle**
+fully automated (no UI), and `manifests/sample-codebase.yaml` is the codebase it
+exercises:
 
 ```bash
-kubectl apply -f manifests/sample-codebase.yaml   # Codebase test-go-app (go/gin)
-# operator creates GitLab project krci/test-go-app + a project webhook -> el-gitlab-krci...
-# open an MR in krci/test-go-app -> a review PipelineRun starts in ns krci and
-# is recorded in Tekton Results (results.tekton.dev/record annotation).
+make e2e   # Codebase test-go-app (go/gin), then:
+# 1. operator creates GitLab project krci/test-go-app + a project webhook -> el-gitlab-krci...
+# 2. open an MR             -> review PipelineRun  -> assert fully green (incl. sonar)
+# 3. merge the MR (action=merge fires the gitlab-build trigger)
+#                           -> build  PipelineRun  -> assert fully green; kaniko pushes the image
+# 4. read the built tag from CodebaseImageStream test-go-app-main
+# 5. create CDPipeline "demo" + Stage "dev" (manifests/cdpipeline-demo.yaml)
+# 6. CDStageDeploy that exact tag -> deploy PipelineRun -> Argo CD syncs the
+#    deploy-templates Helm chart into ns krci-demo-dev; assert the workload is
+#    Available on the built tag.
+# All PipelineRuns are recorded in Tekton Results (results.tekton.dev/record annotation).
 ```
+
+The review/build trigger split lives in the EventListener `Trigger` CRs: `gitlab-review`
+fires on MR `open/reopen/update` (+ note hooks), `gitlab-build` on MR action `merge`.
+So merging the MR — not a separate push — is what kicks the build.
 
 ### Container registry (reuse GitLab's)
 
@@ -374,7 +387,9 @@ manifests/tekton-results-postgres.yaml  # minimal Postgres backing Results
 manifests/tekton-results-ingress.yaml   # ingress: Results API at tekton-results.<wildcard>
 manifests/gitlab.yaml                   # self-hosted GitLab CE (HTTPS, single pod)
 manifests/sample-codebase.yaml          # e2e: Codebase+branch that exercises the webhook
+manifests/cdpipeline-demo.yaml          # e2e: CDPipeline 'demo' + Stage 'dev' (deploy target)
 manifests/krci-gitops.yaml              # KubeRocketCI GitOps repo (system/helm codebase)
+scripts/e2e.sh                          # full e2e: MR -> review -> merge -> build -> deploy demo/dev
 scripts/gitlab-up.sh                    # (pre-krci) deploy GitLab + bootstrap creds/secrets + CoreDNS
 scripts/gitlab-integrate.sh             # (post-krci) operator CA trust + task fix + GitOps repo
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script (host parse + TLS)

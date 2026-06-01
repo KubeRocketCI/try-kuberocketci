@@ -1,0 +1,53 @@
+# e2e CD: a "demo" CDPipeline with a single "dev" Stage that deploys the
+# test-go-app build into its own namespace (krci-demo-dev) via Argo CD.
+#
+# Applied by scripts/e2e.sh EARLY — right after the Codebase is provisioned, once
+# the (initially empty) CodebaseImageStream test-go-app-main exists (the
+# cdpipeline.epam.com validating webhook requires every inputDockerStreams entry to
+# already exist). The Stage must pre-date the build because triggerType: Auto fires
+# on the image-stream UPDATE event: when the build pushes the image and updates the
+# CBIS, the cd-pipeline-operator auto-creates a CDStageDeploy and the deploy runs.
+apiVersion: v2.edp.epam.com/v1
+kind: CDPipeline
+metadata:
+  name: demo
+  namespace: krci
+spec:
+  name: demo
+  deploymentType: container
+  applications:
+    - test-go-app
+  applicationsToPromote:
+    - test-go-app
+  # CodebaseImageStream for the main branch (<codebase>-<branch>); the build
+  # pipeline pushes the image and records the tag here.
+  inputDockerStreams:
+    - test-go-app-main
+---
+apiVersion: v2.edp.epam.com/v1
+kind: Stage
+metadata:
+  # KRCI convention enforced by the validating webhook: the Stage CR name MUST be
+  # "<cdPipeline>-<stage>".
+  name: demo-dev
+  namespace: krci
+spec:
+  name: dev
+  cdPipeline: demo
+  description: "Dev environment (e2e deploy of the freshly built image)."
+  # Stages are ordered from 0; "dev" is the first (and only) stage here.
+  order: 0
+  # Auto: deploy as soon as a new image lands in the input CodebaseImageStream.
+  # The build pipeline pushing the image + updating the CBIS is what triggers the
+  # deploy — no manual CDStageDeploy needed (the operator creates it).
+  triggerType: Auto
+  triggerTemplate: deploy
+  clusterName: in-cluster
+  # Deploy namespace — KRCI syncs the codebase's deploy-templates Helm chart here
+  # (the krci-<pipeline>-<stage> convention).
+  namespace: krci-demo-dev
+  source:
+    type: default
+  qualityGates:
+    - qualityGateType: manual
+      stepName: manual
