@@ -67,5 +67,5 @@ EOF
 echo ""
 echo "==> sonar-integrate done."
 echo "    Integration: secret/ci-sonarqube (ns $NS) -> $SONAR_SVC_URL  (token for '$LOGIN')"
-echo "    UI         : $SONAR_API   (user admin; make sonar-password)"
+echo "    UI         : $SONAR_API   (user admin; password via 'make status')"
 echo "    Validate   : curl -u <token>: $SONAR_API/api/authentication/validate"

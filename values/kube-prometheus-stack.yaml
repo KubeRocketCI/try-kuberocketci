@@ -32,6 +32,17 @@ grafana:
   enabled: true
   # Local-only default admin password (matches the add-ons repo default).
   adminPassword: prom-operator
+  # Expose Grafana at a stable nip.io URL (same pattern as the Prometheus ingress
+  # above) so it's reachable without a port-forward. Plain HTTP, no TLS (local only).
+  # NB: the grafana subchart uses a single `path:` string (not `paths:` like the
+  # prometheus block). Served at root on a dedicated host, so no serve_from_sub_path.
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.127.0.0.1.nip.io
+    path: /
+    pathType: Prefix
 
 # Keep the footprint small on kind — no Alertmanager.
 alertmanager:

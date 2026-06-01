@@ -134,18 +134,13 @@ argocd: ## Install Argo CD (chart $(ARGOCD_CHART_VERSION), single instance) + kr
 	# cluster-wide (the chart doesn't grant it) — see edp-cluster-add-ons rbac-hack.
 	$(KUBECTL) apply -f manifests/argocd-appset-rbac.yaml
 	$(KUBECTL) -n $(ARGOCD_NS) get pods
-	@echo "Argo CD UI: http://argocd.$(WILDCARD)   (user admin; 'make argocd-password')"
+	@echo "Argo CD UI: http://argocd.$(WILDCARD)   (user admin; password via 'make status')"
 
 .PHONY: argocd-integrate
 argocd-integrate: ## (post-krci) Register the GitLab repo creds + create the ci-argocd secret in ns krci
 	ARGOCD_REPO_NAME='$(ARGOCD_REPO_NAME)' ARGOCD_REPO_URL='$(ARGOCD_REPO_URL)' \
 	  ARGOCD_CHART_VERSION='$(ARGOCD_CHART_VERSION)' ARGOCD_NS='$(ARGOCD_NS)' \
 	  bash scripts/argocd-integrate.sh
-
-.PHONY: argocd-password
-argocd-password: ## Print the Argo CD initial admin password
-	@$(KUBECTL) -n $(ARGOCD_NS) get secret argocd-initial-admin-secret \
-	  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d; echo
 
 # ---- KubeRocketCI -----------------------------------------------------------
 .PHONY: repo
@@ -212,17 +207,11 @@ sonar: repo ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres +
 	  --version $(SONAR_OPERATOR_VERSION) -n $(SONAR_NS) --wait --timeout 300s
 	$(KUBECTL) apply -f manifests/sonar-operator-crs.yaml
 	$(KUBECTL) -n $(SONAR_NS) get pods
-	@echo "SonarQube UI: http://sonar.$(WILDCARD)  (user admin; 'make sonar-password')"
+	@echo "SonarQube UI: http://sonar.$(WILDCARD)  (user admin; password via 'make status')"
 
 .PHONY: sonar-integrate
 sonar-integrate: ## (post-krci) Mint a token + create the ci-sonarqube secret in ns krci
 	bash scripts/sonar-integrate.sh
-
-.PHONY: sonar-password
-sonar-password: ## Print the SonarQube admin credentials (local default)
-	@$(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password \
-	  -o jsonpath='{.data.user}' | base64 -d; echo -n " / "; \
-	  $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo
 
 # ---- access -----------------------------------------------------------------
 .PHONY: token
@@ -232,11 +221,6 @@ token: ## Mint a 24h cluster-admin token for Portal login (local only)
 	  $(KUBECTL) create clusterrolebinding krci-admin --clusterrole=cluster-admin --serviceaccount=$(NS):krci-admin
 	@echo "----- BEARER TOKEN (paste into the Portal 'Sign In with Token' dialog) -----"
 	@$(KUBECTL) -n $(NS) create token krci-admin --duration=24h
-
-.PHONY: results-forward
-results-forward: ## Port-forward the Tekton Results API to localhost:8080
-	@echo "Tekton Results API -> http://localhost:8080  (Ctrl-C to stop)"
-	$(KUBECTL) -n $(TEKTON_NS) port-forward svc/tekton-results-api-service 8080:8080
 
 .PHONY: status
 status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
@@ -255,6 +239,7 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && { echo -n "  SonarQube UI:   http://sonar.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "  GitLab UI:      https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "  Results API:    http://tekton-results.$(WILDCARD)" || true
+	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-grafana >/dev/null 2>&1 && { echo -n "  Grafana UI:     http://grafana.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(MONITORING_NS) get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo ")"; } || true
 	@echo ""
 	@echo "--- portal env (run Portal from source with these) ---"
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    TEKTON_RESULTS_URL=http://tekton-results.$(WILDCARD)" || true
@@ -271,11 +256,6 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 .PHONY: gitlab-up
 gitlab-up: ## (pre-krci) Deploy GitLab + bootstrap creds/secrets + CoreDNS
 	GITLAB_ROOT_PASSWORD='$(GITLAB_ROOT_PASSWORD)' bash scripts/gitlab-up.sh
-
-.PHONY: gitlab-password
-gitlab-password: ## Print the GitLab root credentials (local only)
-	@echo -n "root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password \
-	  -o jsonpath='{.data.password}' 2>/dev/null | base64 -d; echo
 
 .PHONY: gitlab-integrate
 gitlab-integrate: ## (post-krci) operator CA trust + gitlab-set-status fix + GitOps repo
