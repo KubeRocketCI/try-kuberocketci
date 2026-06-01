@@ -2,8 +2,8 @@
 
 Spin up [KubeRocketCI](https://docs.kuberocketci.io) (**3.13.5**) in a local `kind`
 cluster on Docker Desktop, with Prometheus + Tekton Results, a self-hosted **GitLab**
-wired for webhook-triggered pipelines, **Argo CD** for CD, and **SonarQube** for code
-quality. Then run the **Portal from source** against it.
+wired for webhook-triggered pipelines, **Argo CD** for CD, **SonarQube** for code
+quality, and the in-cluster **Portal**.
 
 Component versions are pinned to the GitOps source of truth
 ([edp-cluster-add-ons](https://github.com/epam/edp-cluster-add-ons)), but installed
@@ -40,8 +40,8 @@ the component is installed first, then wired to KRCI post-install (only what the
 can't express itself).
 
 ```bash
-make status    # cluster + KRCI + capabilities overview (also prints Portal env vars)
-make token     # mint a 24h Portal login token (Portal runs from source — see below)
+make status    # cluster + KRCI + capabilities overview (also prints values for the Portal .env)
+make token     # mint a 24h Portal login token
 make down      # delete the kind cluster
 ```
 
@@ -49,21 +49,23 @@ Full from-zero validation: `make down && make testbed && make e2e`.
 
 ## What `make testbed` installs
 
-| Layer | Component | Version | Namespace |
-|---|---|---|---|
-| Cluster | kind (k8s) | v1.35.0 | — |
-| Ingress | ingress-nginx | controller-v1.11.3 | ingress-nginx |
-| Certs | cert-manager | v1.16.2 | cert-manager |
-| CI engine | Tekton Pipelines / Triggers | v1.6.0 / v0.34.0 | tekton-pipelines |
-| Platform | KubeRocketCI (edp-install) | 3.13.5 | krci |
-| Monitoring | kube-prometheus-stack (+Grafana) | 84.5.0 | monitoring |
-| Run storage | Tekton Results (+ minimal Postgres) | v0.17.2 | tekton-pipelines |
-| CD engine | Argo CD (single instance) | chart 9.5.17 / v3.4.3 | argocd |
-| Code quality | SonarQube (+ own Postgres, sonar-operator) | chart 2025.3.1 / 25.5-community | sonar |
+| Layer        | Component                                  | Version                         | Namespace        |
+|--------------|--------------------------------------------|---------------------------------|------------------|
+| Cluster      | kind (k8s)                                 | v1.35.0                         | —                |
+| Ingress      | ingress-nginx                              | controller-v1.11.3              | ingress-nginx    |
+| Certs        | cert-manager                               | v1.16.2                         | cert-manager     |
+| CI engine    | Tekton Pipelines / Triggers                | v1.6.0 / v0.34.0                | tekton-pipelines |
+| Platform     | KubeRocketCI (edp-install)                 | 3.13.5                          | krci             |
+| Monitoring   | kube-prometheus-stack (+Grafana)           | 84.5.0                          | monitoring       |
+| Run storage  | Tekton Results (+ minimal Postgres)        | v0.17.2                         | tekton-pipelines |
+| CD engine    | Argo CD (single instance)                  | chart 9.5.17 / v3.4.3           | argocd           |
+| Code quality | SonarQube (+ own Postgres, sonar-operator) | chart 2025.3.1 / 25.5-community | sonar            |
 
 KRCI core pods (ns `krci`): `cd-pipeline-operator`, `codebase-operator`, `gitfusion`,
-`tekton-cache`, `tekton-interceptor`. **The in-cluster Portal is disabled — run it from
-source (below).**
+`tekton-cache`, `tekton-interceptor`, `krci-portal`. The Portal pins the **amd64 image**
+(arm64 variant has a `better_sqlite3` bug) and runs under Docker Desktop's Rosetta, like
+the other amd64-only images (`gitlab-ce`, `sonar-operator`). It serves
+`https://portal.127.0.0.1.nip.io`; token login is OIDC-only, not wired here yet.
 
 ## Credentials (local only)
 
@@ -72,12 +74,12 @@ source (below).**
 > internet-reachable, or production cluster. Everything serves over plain HTTP /
 > self-signed TLS with no real SSO.
 
-| Component | URL | User | Password |
-|---|---|---|---|
-| GitLab | https://gitlab.127.0.0.1.nip.io | `root` | `KrciLocal_2026!` |
-| SonarQube | http://sonar.127.0.0.1.nip.io | `admin` | `KrciSonar_2026!` |
-| Argo CD | http://argocd.127.0.0.1.nip.io | `admin` | _(chart-generated)_ |
-| Grafana | http://grafana.127.0.0.1.nip.io | `admin` | `prom-operator` |
+| Component | URL                               | User    | Password            |
+|-----------|-----------------------------------|---------|---------------------|
+| GitLab    | <https://gitlab.127.0.0.1.nip.io> | `root`  | `KrciLocal_2026!`   |
+| SonarQube | <http://sonar.127.0.0.1.nip.io>   | `admin` | `KrciSonar_2026!`   |
+| Argo CD   | <http://argocd.127.0.0.1.nip.io>  | `admin` | *(chart-generated)* |
+| Grafana   | <http://grafana.127.0.0.1.nip.io> | `admin` | `prom-operator`     |
 
 `make status` prints the live passwords for every UI. The **Portal** uses a 24h
 Kubernetes bearer token (`make token`), not a password.
@@ -101,46 +103,19 @@ make argocd-integrate # (post-krci) repo creds + known-hosts + ci-argocd secret 
 make sonar-integrate  # (post-krci) mint token + ci-sonarqube secret
 make testbed          # the full platform, in the order shown above
 
-make status           # cluster + KRCI + capabilities overview + Portal env vars
+make status           # cluster + KRCI + capabilities overview + values for the Portal .env
 make token            # 24h cluster-admin bearer token (Portal login)
 make e2e              # MR -> review -> merge -> build -> deploy (demo/dev)
 make krci-dry-run     # render the edp-install chart without installing
 make down             # delete the kind cluster
 ```
 
-## Portal (run from source)
-
-The in-cluster Portal image is disabled; run the Portal from a separate `krci-portal`
-checkout at `../portal/krci-portal`:
-
-```bash
-make token                              # copy the JWT
-cd ../portal/krci-portal && pnpm dev    # http://localhost:5173
-```
-
-Open http://localhost:5173 → **Sign In with Token** → paste the token. (A local dev OIDC
-bypass in the portal's `loginWithToken` accepts the kube ServiceAccount token directly —
-no real IdP needed.)
-
-Point the Portal at the in-cluster services via `krci-portal/.env` (all three are printed
-by `make status` under "portal env"):
-
-```bash
-TEKTON_RESULTS_URL=http://tekton-results.127.0.0.1.nip.io   # PipelineRun history
-GITFUSION_URL=http://gitfusion.127.0.0.1.nip.io             # repo discovery (groups/projects/branches/PRs)
-PROMETHEUS_URL=http://prometheus.127.0.0.1.nip.io           # Stage Monitoring tab
-```
-
-The chart renders ingresses for all three, so no port-forward is needed. gitfusion talks
-to GitLab over HTTPS with the self-signed cert, so the chart mounts `cm gitlab-ca` into it
-declaratively — otherwise discovery fails with x509 "unknown authority".
-
 ## End-to-end test (`make e2e`)
 
 `scripts/e2e.sh` drives the whole CI→CD lifecycle, fully automated (no UI), against the
 Codebase `test-go-app` (go/gin) in `manifests/sample-codebase.yaml`:
 
-```
+```txt
 1. operator creates GitLab project krci/test-go-app + a project webhook
 2. open an MR     -> review PipelineRun -> assert fully green (incl. sonar)
 3. merge the MR   -> build  PipelineRun -> assert fully green; kaniko pushes the image
@@ -168,13 +143,18 @@ GitLab is a **platform dependency**: it comes up before `make krci`, and the **G
 What this test bed changes relative to a stock, GitOps-managed KubeRocketCI install:
 
 **Install method**
+
 - **helm/kubectl, not Argo CD GitOps** — versions still pinned to edp-cluster-add-ons,
   but applied directly so each component is debuggable in isolation.
-- **In-cluster Portal disabled** — run from source (above); auth via a Kubernetes bearer
-  token + dev OIDC bypass instead of Keycloak/OIDC (not deployed).
+- **In-cluster Portal** — `krci-portal` subchart enabled, wired to in-cluster Services
+  (`portal-config` + secret `krci-portal-secret`, HTTPS ingress). Pins the **amd64 image**
+  (arm64 variant has a `better_sqlite3` bug) under Docker Desktop's Rosetta. Token login is
+  OIDC-only (no issuer in kind), so it's not wired here.
 
-**Patched Tekton tasks** (both survive `make krci` — helm's 3-way merge only resets
-fields the chart itself owns):
+**Patched Tekton tasks** (applied by the `*-integrate` steps after `make krci`; Helm 4
+server-side apply resets them to chart-stock on each run, so `make krci` uses
+`--force-conflicts` and the integrate steps re-apply):
+
 - **`gitlab-set-status`** — the stock task mis-parsed our `ssh://…:32222/…` git URL
   (posted status to host `ssh`) and verified TLS against the self-signed cert, aborting
   every run at `report-pipeline-start-to-gitlab`. Patched (`scripts/gitlab-set-status.py`)
@@ -199,7 +179,7 @@ installed); it satisfies the canonical manifest's DB contract, used unmodified e
 pinning the `logs` PVC namespace.
 
 **Self-hosted GitLab** — added as a platform dependency (KRCI supports
-gitlab/github/gerrit/bitbucket — **not Gitea**). Serves **HTTPS with a self-signed cert**
+gitlab/github/gerrit/bitbucket). Serves **HTTPS with a self-signed cert**
 (the operator's API client only speaks https), so the operator CA trust is mounted into
 codebase-operator + gitfusion. **CoreDNS split-horizon** + a **kind containerd registry
 mirror** (`hosts.toml`) let in-cluster and node-level pulls reach the GitLab registry.
@@ -214,10 +194,11 @@ group deploy token backs both push (`kaniko-docker-config`) and pull (`regcred`)
 ```
 Makefile                                # all orchestration (versions pinned at top; make help)
 kind/cluster.yaml                       # single-node kind, ports 80/443 -> localhost, registry mirror
-values/edp-install.yaml                 # KubeRocketCI chart values (in-cluster portal off)
+values/edp-install.yaml                 # KubeRocketCI chart values (in-cluster portal on, amd64 image)
 values/kube-prometheus-stack.yaml       # Prometheus + Grafana values
 values/argo-cd.yaml                     # Argo CD chart values (single instance)
 values/sonarqube.yaml                   # SonarQube chart values (community, external jdbc)
+manifests/krci-portal-secret.yaml       # Portal SERVER_SECRET/OIDC_CLIENT_SECRET (applied pre-krci)
 manifests/argocd-appproject-krci.yaml   # Argo CD AppProject 'krci'
 manifests/argocd-appset-rbac.yaml       # cluster-scoped RBAC for the appset controller
 manifests/sonar-postgres.yaml           # minimal Postgres backing SonarQube
@@ -246,4 +227,5 @@ docs/gitlab-declarative-refactor.md     # rationale for deps-first / KRCI-last o
   install fails with `connection refused` on `webhook.pipeline.tekton.dev`.
 - **Versions** are pinned at the top of the `Makefile` (`EDP_VERSION`,
   `PROM_CHART_VERSION`, `ARGOCD_CHART_VERSION`, the Tekton URLs, …). Bump there to upgrade.
+
 ```

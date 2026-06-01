@@ -64,6 +64,15 @@ stringData:
   token: "${TOKEN}"
 EOF
 
+# The Portal's Sonar client needs SONAR_TOKEN (only minted now); patch it into the
+# Portal secret + restart. Skipped if the Portal secret isn't present.
+if $KUBECTL -n "$NS" get secret krci-portal-secret >/dev/null 2>&1; then
+  echo "==> Wiring SONAR_TOKEN into the in-cluster Portal (secret/krci-portal-secret) + restart"
+  $KUBECTL -n "$NS" patch secret krci-portal-secret --type merge \
+    -p "{\"stringData\":{\"SONAR_TOKEN\":\"${TOKEN}\"}}"
+  $KUBECTL -n "$NS" rollout restart deploy/krci-portal >/dev/null 2>&1 || true
+fi
+
 echo ""
 echo "==> sonar-integrate done."
 echo "    Integration: secret/ci-sonarqube (ns $NS) -> $SONAR_SVC_URL  (token for '$LOGIN')"

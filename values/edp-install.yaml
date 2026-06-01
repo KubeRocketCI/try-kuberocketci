@@ -59,11 +59,10 @@ edp-tekton:
           enabled: true
 
 # gitfusion serves the Portal's git-provider operations (repository discovery,
-# branch/PR listing) via a REST API on :8080. The Portal runs FROM SOURCE on the
-# host, so it needs to reach gitfusion at a stable nip.io URL — same pattern as the
-# Tekton Results ingress. Plain HTTP (the service is HTTP; auth is the kube token
-# the Portal already forwards). Point the Portal at this with GITFUSION_URL /
-# the portal's gitfusion endpoint env: http://gitfusion.127.0.0.1.nip.io
+# branch/PR listing) via a REST API on :8080. The in-cluster Portal reaches it at
+# gitfusion.krci:8080; this ingress also exposes it at a stable nip.io URL for
+# off-cluster access (GITFUSION_URL in the Portal .env — see `make status`). Plain
+# HTTP (the service is HTTP; auth is the kube token the Portal forwards).
 gitfusion:
   ingress:
     enabled: true
@@ -97,14 +96,39 @@ externalSecrets:
   enabled: false
   manageEDPInstallSecrets: false
 
-# In-cluster Portal is DISABLED on purpose — we run the Portal FROM SOURCE
-# (../portal/krci-portal, `pnpm dev`) against this cluster instead. Why not the
-# released image:
-#   1. It needs a reachable OIDC issuer (the user idToken becomes the kube bearer),
-#      which kind doesn't have. The source run uses a local dev-bypass instead.
-#   2. The released arm64 image crashes on this runtime: better_sqlite3.node
-#      "unsupported relocation type 7" / ERR_DLOPEN_FAILED. The native module
-#      builds fine when run from source on the host.
-# See README "Portal (run from source)".
+# In-cluster Portal (edp-install subchart krci-portal 0.5.0). Token login is OIDC-only
+# and kind has no issuer, so the pod is Ready and serves the UI over HTTPS but login is
+# not wired (needs SA-token support). configEnv overrides only the endpoints the chart
+# placeholders don't resolve to; the rest keep chart defaults via deep merge.
 krci-portal:
-  enabled: false
+  enabled: true
+
+  image:
+    # amd64 image (arm64 variant has a better_sqlite3 bug); runs under Docker Desktop's
+    # Rosetta, like gitlab-ce/sonar-operator. name:tag@digest → digest wins; re-pin on bump.
+    tag: "0.5.0@sha256:ed9931db00d2d6b3b77a1ea19afa589253dc79135355a91d2ce2241992731897"
+
+  configEnv:
+    PORTAL_URL: https://portal.127.0.0.1.nip.io
+    TEKTON_RESULTS_URL: http://tekton-results-api-service.tekton-pipelines.svc:8080
+    SONAR_HOST_URL: http://sonar.sonar:9000          # in-cluster API endpoint
+    SONAR_WEB_URL: http://sonar.127.0.0.1.nip.io     # public ingress for browser links
+    PROMETHEUS_URL: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
+
+  # The chart renders envFrom from extraEnvFrom only (no auto-mount of portal-config), so
+  # configEnv reaches the pod via this configMapRef; secretRef adds the sensitive env.
+  extraEnvFrom:
+    - configMapRef:
+        name: portal-config
+    - secretRef:
+        name: krci-portal-secret
+
+  ingress:
+    enabled: true
+    className: nginx
+    dnsWildcard: "127.0.0.1.nip.io"
+    hosts:
+      - host: portal.127.0.0.1.nip.io
+        paths:
+          - path: /
+            pathType: Prefix

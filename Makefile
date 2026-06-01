@@ -99,6 +99,15 @@ cluster: ## Create the kind cluster (ports 80/443 -> localhost)
 ingress: ## Install ingress-nginx (kind provider) and wait
 	$(KUBECTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(INGRESS_NGINX_REF)/deploy/static/provider/kind/deploy.yaml
 	$(KUBECTL) -n ingress-nginx wait --for=condition=Available deploy/ingress-nginx-controller --timeout=300s
+	# Also wait for the admission webhook endpoints: the controller reports Available before
+	# they're ready, racing the next Ingress create (argocd) into a "connection refused".
+	@echo "waiting for ingress-nginx admission webhook endpoints..."
+	@for i in $$(seq 1 90); do \
+	  ips=$$($(KUBECTL) -n ingress-nginx get endpoints ingress-nginx-controller-admission -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null); \
+	  [ -n "$$ips" ] && { echo "  admission webhook ready: $$ips"; exit 0; }; \
+	  sleep 2; \
+	done; \
+	echo "!! ingress-nginx admission webhook endpoints never became ready" >&2; exit 1
 
 .PHONY: cert-manager
 cert-manager: ## Install cert-manager (required by KubeRocketCI operator webhooks)
@@ -155,10 +164,15 @@ krci-dry-run: repo ## Render the chart (no install) to reveal required values
 	  -f $(VALUES) --dry-run --debug 2>&1 | tail -60
 
 .PHONY: krci
-krci: repo ## Install KubeRocketCI (edp-install $(EDP_VERSION)); renders GitServer/EL from values (run gitlab-up first)
+krci: repo ## Install KubeRocketCI (edp-install $(EDP_VERSION)); renders GitServer/EL + in-cluster Portal (run gitlab-up first)
+	# Portal env secret must exist before the chart (envFrom on a missing Secret blocks the pod).
+	$(KUBECTL) create namespace $(NS) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(KUBECTL) -n $(NS) apply -f manifests/krci-portal-secret.yaml
+	# --force-conflicts: Helm 4 SSA vs the post-krci kubectl patches on gitlab-set-status /
+	# deploy-applicationset-cli; the *-integrate steps re-apply them. No-op on a clean install.
 	helm upgrade --install edp $(HELM_REPO_NAME)/edp-install \
 	  --version $(EDP_VERSION) -n $(NS) --create-namespace \
-	  -f $(VALUES) --wait --timeout 900s
+	  -f $(VALUES) --force-conflicts --wait --timeout 900s
 	$(KUBECTL) -n $(NS) get pods
 
 # ---- platform capabilities --------------------------------------------------
@@ -240,8 +254,9 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "  GitLab UI:      https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "  Results API:    http://tekton-results.$(WILDCARD)" || true
 	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-grafana >/dev/null 2>&1 && { echo -n "  Grafana UI:     http://grafana.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(MONITORING_NS) get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo ")"; } || true
+	@$(KUBECTL) -n $(NS) get ingress krci-portal >/dev/null 2>&1 && echo "  Portal UI:      https://portal.$(WILDCARD)  (in-cluster; HTTPS/self-signed — login pending SA-token support)" || true
 	@echo ""
-	@echo "--- portal env (run Portal from source with these) ---"
+	@echo "--- portal .env values ---"
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    TEKTON_RESULTS_URL=http://tekton-results.$(WILDCARD)" || true
 	@$(KUBECTL) -n $(NS) get ingress gitfusion >/dev/null 2>&1 && echo "    GITFUSION_URL=http://gitfusion.$(WILDCARD)" || echo "    GITFUSION_URL=(gitfusion ingress not found — run make krci)"
 	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-kube-prometheus-prometheus >/dev/null 2>&1 && echo "    PROMETHEUS_URL=http://prometheus.$(WILDCARD)" || echo "    PROMETHEUS_URL=(prometheus ingress not found — run make prometheus)"
