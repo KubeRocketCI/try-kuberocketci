@@ -239,24 +239,29 @@ results-forward: ## Port-forward the Tekton Results API to localhost:8080
 	$(KUBECTL) -n $(TEKTON_NS) port-forward svc/tekton-results-api-service 8080:8080
 
 .PHONY: status
-status: ## Show cluster + KubeRocketCI status
+status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) get nodes
 	@echo "--- krci pods ---"; $(KUBECTL) -n $(NS) get pods
 	@echo "--- ingresses ---"; $(KUBECTL) -n $(NS) get ingress
 	@echo "--- monitoring ---"; $(KUBECTL) -n $(MONITORING_NS) get pods 2>/dev/null || echo "(not installed)"
 	@echo "--- argocd ---"; $(KUBECTL) -n $(ARGOCD_NS) get pods 2>/dev/null || echo "(not installed)"
-	@$(KUBECTL) -n $(ARGOCD_NS) get ingress argocd-server >/dev/null 2>&1 && { echo -n "    Argo CD UI: http://argocd.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(ARGOCD_NS) get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo " — local only)"; } || true
 	@echo "--- sonar ---"; $(KUBECTL) -n $(SONAR_NS) get pods 2>/dev/null || echo "(not installed)"
-	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && { echo -n "    SonarQube UI: http://sonar.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo " — local only)"; } || true
 	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && echo "    KRCI integration: secret/ci-sonarqube present (ns $(NS))" || echo "    KRCI integration: ci-sonarqube MISSING (run make sonar-integrate)"
 	@echo "--- gitlab ---"; $(KUBECTL) -n gitlab get pods 2>/dev/null | grep -E 'gitlab|NAME' || echo "(not installed)"
-	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "    GitLab UI: https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo " — local only)"; } || true
 	@echo "--- tekton-results ---"; $(KUBECTL) -n $(TEKTON_NS) get pods 2>/dev/null | grep -E 'results' || echo "(not installed)"
-	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    Results API: http://tekton-results.$(WILDCARD)" || true
+	@echo ""
+	@echo "================ Tool URLs & credentials (local only) ================"
+	@$(KUBECTL) -n $(ARGOCD_NS) get ingress argocd-server >/dev/null 2>&1 && { echo -n "  Argo CD UI:     http://argocd.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(ARGOCD_NS) get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
+	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && { echo -n "  SonarQube UI:   http://sonar.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
+	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "  GitLab UI:      https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
+	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "  Results API:    http://tekton-results.$(WILDCARD)" || true
+	@echo ""
 	@echo "--- portal env (run Portal from source with these) ---"
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    TEKTON_RESULTS_URL=http://tekton-results.$(WILDCARD)" || true
 	@$(KUBECTL) -n $(NS) get ingress gitfusion >/dev/null 2>&1 && echo "    GITFUSION_URL=http://gitfusion.$(WILDCARD)" || echo "    GITFUSION_URL=(gitfusion ingress not found — run make krci)"
 	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-kube-prometheus-prometheus >/dev/null 2>&1 && echo "    PROMETHEUS_URL=http://prometheus.$(WILDCARD)" || echo "    PROMETHEUS_URL=(prometheus ingress not found — run make prometheus)"
+	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && echo "    SONAR_HOST_URL=http://sonar.$(WILDCARD)" || echo "    SONAR_HOST_URL=(sonar ingress not found — run make sonar)"
+	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && { echo -n "    SONAR_TOKEN="; $(KUBECTL) -n $(NS) get secret ci-sonarqube -o jsonpath='{.data.token}' | base64 -d; echo; } || echo "    SONAR_TOKEN=(ci-sonarqube secret not found — run make sonar-integrate)"
 
 # ---- self-hosted git --------------------------------------------------------
 # GitLab is a platform DEPENDENCY: gitlab-up runs BEFORE krci (so the chart can
