@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a new capability, component, or improvement for the test bed.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The use case or pain point. What are you trying to do locally?
+      placeholder: "I want to test KRCI against <provider> locally, but..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you add or change? A new `make` target, component, or value?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Scope
+      options:
+        - label: This keeps the project a **local, laptop-footprint** test bed (not a production deployment).
+          required: true

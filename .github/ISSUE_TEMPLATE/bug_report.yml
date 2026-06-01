@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in the local test bed doesn't work as documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! This project is a **local-only
+        `kind` test bed** — please confirm the issue reproduces on a clean
+        `make down && make testbed` before filing.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+      placeholder: "make e2e fails at the build stage because..."
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Which make target?
+      description: Where does it fail?
+      options:
+        - make testbed
+        - make e2e
+        - make up
+        - make krci
+        - make gitlab-up / gitlab-integrate
+        - make argocd / argocd-integrate
+        - make sonar / sonar-integrate
+        - make prometheus
+        - make tekton-results
+        - Other (describe below)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands you ran.
+      placeholder: |
+        1. make down
+        2. make testbed
+        3. make e2e
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / output
+      description: Paste the failing output, pod logs, or `make status`. Redact any non-local secrets.
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Versions and platform.
+      value: |
+        - OS / arch (e.g. macOS 15 arm64):
+        - Docker Desktop version + RAM allocated:
+        - kind version:
+        - helm version:
+        - kubectl version:
+        - Repo commit (git rev-parse --short HEAD):
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I reproduced this on a clean `make down && make testbed`.
+          required: true
+        - label: I allocated at least 8 GB (12 GB+ for the full bed) to Docker.
+          required: true

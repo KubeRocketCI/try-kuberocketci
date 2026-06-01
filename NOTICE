@@ -1,0 +1,27 @@
+try-kuberocketci
+Copyright 2026 The KubeRocketCI Authors
+
+This product includes software developed by The KubeRocketCI Authors
+(https://github.com/KuberocketCI) as part of the KubeRocketCI project
+(https://docs.kuberocketci.io).
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+This repository orchestrates third-party open-source software that is
+downloaded at install time and remains under its own license. These
+components are NOT redistributed by this repository; it only references
+and configures them. Notable components include:
+
+  - KubeRocketCI / edp-install, edp-tekton, sonar-operator (Apache-2.0)
+  - Tekton Pipelines, Triggers, Results (Apache-2.0)
+  - Argo CD (Apache-2.0)
+  - kube-prometheus-stack, Prometheus, Grafana (Apache-2.0 / AGPL-3.0)
+  - SonarQube Community Edition (LGPL-3.0)
+  - GitLab Community Edition (MIT)
+  - ingress-nginx, cert-manager, kind, PostgreSQL
+
+Please consult each component's upstream project for its license terms.

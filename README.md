@@ -1,43 +1,111 @@
-# krci-k8s — local KubeRocketCI test bed
+# try-kuberocketci — run the full KubeRocketCI platform locally in kind
 
-Spin up [KubeRocketCI](https://docs.kuberocketci.io) (**3.13.5**) in a local `kind`
-cluster on Docker Desktop, with Prometheus + Tekton Results, a self-hosted **GitLab**
-wired for webhook-triggered pipelines, **Argo CD** for CD, **SonarQube** for code
-quality, and the in-cluster **Portal**.
+> **Spin up the complete [KubeRocketCI](https://docs.kuberocketci.io) (KRCI) CI/CD
+> platform on your laptop in two commands** — a self-hosted GitLab, Tekton CI,
+> Argo CD for GitOps delivery, SonarQube code quality, Prometheus + Grafana, and the
+> KubeRocketCI Portal — all inside a disposable `kind` cluster on Docker Desktop.
 
-Component versions are pinned to the GitOps source of truth
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![KubeRocketCI](https://img.shields.io/badge/KubeRocketCI-3.13.5-7B42BC.svg)](https://docs.kuberocketci.io)
+[![Kubernetes: kind](https://img.shields.io/badge/Kubernetes-kind-326CE5.svg)](https://kind.sigs.k8s.io/)
+[![CI: Tekton](https://img.shields.io/badge/CI-Tekton-FD495C.svg)](https://tekton.dev/)
+[![CD: Argo CD](https://img.shields.io/badge/CD-Argo%20CD-EF7B4D.svg)](https://argo-cd.readthedocs.io/)
+[![Code Quality: SonarQube](https://img.shields.io/badge/Code%20Quality-SonarQube-4E9BCD.svg)](https://www.sonarsource.com/products/sonarqube/)
+[![SCM: GitLab](https://img.shields.io/badge/SCM-GitLab-FC6D26.svg)](https://about.gitlab.com/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+**`try-kuberocketci`** is a local, reproducible **test bed / sandbox** for
+KubeRocketCI — an open-source **internal developer platform (IDP)** for
+cloud-native CI/CD on Kubernetes. It lets you evaluate, demo, learn, and develop
+against a *complete* KRCI platform without any cloud account: everything runs in a
+single-node `kind` cluster and tears down with one command. Component versions are
+pinned to the GitOps source of truth
 ([edp-cluster-add-ons](https://github.com/epam/edp-cluster-add-ons)), but installed
-directly with helm/kubectl instead of Argo CD — so you can stand the platform up with a
-couple of commands and poke at any component. See **[Local deviations &
-patches](#local-deviations--patches)** for how this differs from a stock KRCI install.
+directly with `helm`/`kubectl` instead of Argo CD — so you can stand the platform
+up with a couple of commands and poke at any component in isolation.
+
+**What you get, locally:**
+
+- **Self-hosted GitLab CE** — the SCM, wired for webhook-triggered pipelines
+- **Tekton Pipelines/Triggers/Results** — the CI engine and run history
+- **Argo CD** — GitOps continuous delivery
+- **SonarQube Community** — static analysis and quality gates
+- **Prometheus + Grafana** — metrics and dashboards
+- **KubeRocketCI Portal** — the platform UI, in-cluster
+- **A real, automated end-to-end run** — `make e2e` drives MR → review → merge →
+  build → deploy and asserts the app is live, no clicking required
+
+---
+
+## Table of contents
+
+- [What is KubeRocketCI?](#what-is-kuberocketci)
+- [Who is this for?](#who-is-this-for)
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [What `make testbed` installs](#what-make-testbed-installs)
+- [Credentials (local only)](#credentials-local-only)
+- [Targets](#targets)
+- [End-to-end test (`make e2e`)](#end-to-end-test-make-e2e)
+- [Local deviations & patches](#local-deviations--patches)
+- [Repository layout](#repository-layout)
+- [FAQ](#faq)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
+## What is KubeRocketCI?
+
+[**KubeRocketCI**](https://docs.kuberocketci.io) (KRCI, or "Rocket") is an open-source,
+Kubernetes-native **internal developer platform**
+that assembles best-of-breed tools — Tekton, Argo CD, SonarQube, and your Git
+provider — into a cohesive, opinionated CI/CD experience. It manages the lifecycle
+of your **Codebases** (applications, libraries, autotests) from source through
+review, build, and GitOps-based deployment, exposing it all through a single Portal.
+
+This repository is **not** KubeRocketCI itself — it's a **local installer and test
+harness** that brings the whole platform up on your machine so you can try it,
+reproduce issues, or develop integrations against it.
+
+## Who is this for?
+
+- **Platform / DevOps engineers** evaluating KubeRocketCI before adopting it.
+- **Contributors** to KRCI who need a fast, disposable, from-zero reproduction.
+- **Developers** who want to understand the Tekton + Argo CD + SonarQube + GitLab
+  CI/CD flow end-to-end without standing up cloud infrastructure.
+- **Anyone learning** cloud-native CI/CD, GitOps, and platform engineering by
+  reading a real, working, fully-wired example.
 
 ## Prerequisites
 
-- Docker Desktop, **≥ 8 GB RAM** (the full bed with GitLab + SonarQube wants 12 GB+).
-- `kind`, `helm`, `kubectl` on PATH (`make tools` installs `kind` via brew).
+- **Docker Desktop**, **≥ 8 GB RAM** (the full bed with GitLab + SonarQube wants
+  **12 GB+**).
+- `kind`, `helm`, `kubectl` on `PATH` (`make tools` installs `kind` via brew).
+- macOS (Apple Silicon or Intel) or Linux. On Apple Silicon, amd64-only images
+  (Portal, GitLab, sonar-operator) run under Docker Desktop's Rosetta.
 
 ## Quick start
 
 ```bash
-make testbed   # ~18-20 min: all dependencies, then KRCI installed LAST
+make testbed   # ~18-20 min: all dependencies, then KubeRocketCI installed LAST
 make e2e       # ~12 min: MR -> review -> merge -> build -> deploy; PASS = all green + app deployed
 ```
 
-`make testbed` builds in dependency order and installs KRCI **last** so the chart wires
-itself to what's already up:
+`make testbed` builds in **dependency order** and installs KubeRocketCI **last** so
+the chart wires itself to what's already up:
 
 ```
 cluster → ingress → cert-manager → Tekton → Argo CD → Prometheus → Tekton Results → SonarQube
         → gitlab-up          deploy GitLab + bootstrap creds/secrets
-        → krci               edp-install; renders GitServer/EventListener/Ingress + registry
-        → gitlab-integrate   operator CA trust + gitlab-set-status patch + GitOps repo
-        → argocd-integrate   repo creds + known-hosts + ci-argocd secret + deploy patch
-        → sonar-integrate    mint token + ci-sonarqube secret
+        → krci               install KubeRocketCI (edp-install)
+        → gitlab-integrate   wire GitLab to KubeRocketCI
+        → argocd-integrate   wire Argo CD to KubeRocketCI
+        → sonar-integrate    wire SonarQube to KubeRocketCI
 ```
 
-Each `*-integrate` step is the **integrate** half of a *baseline → integrate* split:
-the component is installed first, then wired to KRCI post-install (only what the chart
-can't express itself).
+Each `*-integrate` step wires a component to KubeRocketCI after it's installed. See
+[docs/architecture.md](docs/architecture.md) for the full design.
 
 ```bash
 make status    # cluster + KRCI + capabilities overview (also prints values for the Portal .env)
@@ -46,6 +114,35 @@ make down      # delete the kind cluster
 ```
 
 Full from-zero validation: `make down && make testbed && make e2e`.
+
+## Architecture
+
+KubeRocketCI is installed **last**, after every dependency it wires to is already
+running — the **deps-first / KRCI-last** principle:
+
+```mermaid
+flowchart LR
+    subgraph Foundation
+      A[kind] --> B[ingress-nginx] --> C[cert-manager] --> D[Tekton]
+    end
+    subgraph Capabilities
+      D --> E[Argo CD] --> F[Prometheus] --> G[Tekton Results] --> H[SonarQube]
+    end
+    H --> I[GitLab CE<br/>+ creds/secrets/CoreDNS]
+    I --> J([KubeRocketCI<br/>edp-install])
+    J --> K[integrate:<br/>CA trust · tokens · task patches]
+    K --> L{{make e2e:<br/>MR → review → merge → build → deploy}}
+```
+
+The platform install itself uses `helm`/`kubectl` (not Argo CD GitOps) so each
+component is **independently rebuildable** and debuggable. The *workloads*
+KubeRocketCI deploys still go through Argo CD. Read the design docs:
+
+- **[docs/architecture.md](docs/architecture.md)** — deps-first / KRCI-last,
+  baseline → integrate, split-horizon DNS, the three CA-trust injection points, the
+  task patches, and the CI → CD lifecycle.
+- **[docs/gitlab-integration.md](docs/gitlab-integration.md)** — the self-hosted
+  GitLab webhook path in depth.
 
 ## What `make testbed` installs
 
@@ -60,19 +157,19 @@ Full from-zero validation: `make down && make testbed && make e2e`.
 | Run storage  | Tekton Results (+ minimal Postgres)        | v0.17.2                         | tekton-pipelines |
 | CD engine    | Argo CD (single instance)                  | chart 9.5.17 / v3.4.3           | argocd           |
 | Code quality | SonarQube (+ own Postgres, sonar-operator) | chart 2025.3.1 / 25.5-community | sonar            |
+| SCM          | GitLab CE (+ Container Registry)           | 17.5.1-ce                       | gitlab           |
 
-KRCI core pods (ns `krci`): `cd-pipeline-operator`, `codebase-operator`, `gitfusion`,
-`tekton-cache`, `tekton-interceptor`, `krci-portal`. The Portal pins the **amd64 image**
-(arm64 variant has a `better_sqlite3` bug) and runs under Docker Desktop's Rosetta, like
-the other amd64-only images (`gitlab-ce`, `sonar-operator`). It serves
-`https://portal.127.0.0.1.nip.io`; token login is OIDC-only, not wired here yet.
+KubeRocketCI core pods (ns `krci`): `cd-pipeline-operator`, `codebase-operator`,
+`gitfusion`, `tekton-cache`, `tekton-interceptor`, `krci-portal`. On Apple Silicon,
+the Portal and other amd64-only images run under Docker Desktop's Rosetta; the
+Portal serves `https://portal.127.0.0.1.nip.io`.
 
 ## Credentials (local only)
 
-> ⚠️ **LOCAL USE ONLY.** Fixed, predictable credentials baked into a throwaway `kind`
-> cluster. They are **not secret** and must **never** be used on any shared,
+> **LOCAL USE ONLY.** Fixed, predictable credentials baked into a throwaway
+> `kind` cluster. They are **not secret** and must **never** be used on any shared,
 > internet-reachable, or production cluster. Everything serves over plain HTTP /
-> self-signed TLS with no real SSO.
+> self-signed TLS with no real SSO. See [SECURITY.md](SECURITY.md).
 
 | Component | URL                               | User    | Password            |
 |-----------|-----------------------------------|---------|---------------------|
@@ -86,9 +183,9 @@ Kubernetes bearer token (`make token`), not a password.
 
 ## Targets
 
-`make help` lists everything. Build piecemeal or all at once — each capability target is
-independent and idempotent, so you can rebuild/debug one component without touching the
-rest.
+`make help` lists everything. Build piecemeal or all at once — each capability
+target is independent and idempotent, so you can rebuild/debug one component without
+touching the rest.
 
 ```bash
 make up               # prerequisites only: cluster -> ingress -> cert-manager -> tekton -> argocd
@@ -96,11 +193,11 @@ make prometheus       # add kube-prometheus-stack + Grafana
 make tekton-results   # add Tekton Results + its minimal Postgres
 make sonar            # add SonarQube + own Postgres + sonar-operator + CRs
 make argocd           # add Argo CD (single instance) + krci AppProject
-make gitlab-up        # (pre-krci)  deploy GitLab + bootstrap creds/secrets + CoreDNS
-make krci             # install KubeRocketCI (renders GitServer/EL from values)
-make gitlab-integrate # (post-krci) operator CA trust + gitlab-set-status patch + GitOps repo
-make argocd-integrate # (post-krci) repo creds + known-hosts + ci-argocd secret + deploy patch
-make sonar-integrate  # (post-krci) mint token + ci-sonarqube secret
+make gitlab-up        # (pre-krci)  deploy GitLab + bootstrap creds/secrets
+make krci             # install KubeRocketCI (edp-install)
+make gitlab-integrate # (post-krci) wire GitLab to KubeRocketCI
+make argocd-integrate # (post-krci) wire Argo CD to KubeRocketCI
+make sonar-integrate  # (post-krci) wire SonarQube to KubeRocketCI
 make testbed          # the full platform, in the order shown above
 
 make status           # cluster + KRCI + capabilities overview + values for the Portal .env
@@ -112,8 +209,8 @@ make down             # delete the kind cluster
 
 ## End-to-end test (`make e2e`)
 
-`scripts/e2e.sh` drives the whole CI→CD lifecycle, fully automated (no UI), against the
-Codebase `test-go-app` (go/gin) in `manifests/sample-codebase.yaml`:
+`scripts/e2e.sh` drives the whole CI→CD lifecycle, fully automated (no UI), against
+the Codebase `test-go-app` (go/gin) in `manifests/sample-codebase.yaml`:
 
 ```txt
 1. operator creates GitLab project krci/test-go-app + a project webhook
@@ -125,71 +222,36 @@ Codebase `test-go-app` (go/gin) in `manifests/sample-codebase.yaml`:
    Helm chart into ns krci-demo-dev; assert the workload is Available on the built tag
 ```
 
-The **review/build trigger split** lives in the EventListener `Trigger` CRs:
-`gitlab-review` fires on MR `open/reopen/update` (+ note hooks), `gitlab-build` on MR
-action `merge`. So **merging** the MR — not a separate push — kicks the build. All
-PipelineRuns are recorded in Tekton Results.
+Opening or updating the MR triggers the review pipeline; **merging** it — not a
+separate push — kicks the build. All PipelineRuns are recorded in Tekton Results.
 
-GitLab is a **platform dependency**: it comes up before `make krci`, and the **GitServer
-/ EventListener / Ingress are rendered by the chart** from `edp-tekton.gitServers` in
-`values/edp-install.yaml` — not created imperatively. See
-`docs/gitlab-declarative-refactor.md` for the deps-first / KRCI-last rationale.
+GitLab is a **platform dependency**: it comes up before `make krci`. See
+[docs/architecture.md](docs/architecture.md) for the deps-first / KRCI-last design.
 
-> **Known quirk:** GitLab can deliver the MR webhook twice, creating two concurrent runs;
-> the second gets a harmless `400` posting the same commit-status context.
+> **Known quirk:** GitLab can deliver the MR webhook twice, creating two concurrent
+> runs; the second gets a harmless `400` posting the same commit-status context.
 
 ## Local deviations & patches
 
-What this test bed changes relative to a stock, GitOps-managed KubeRocketCI install:
+This test bed differs from a stock, GitOps-managed KubeRocketCI install in a few
+deliberate ways. Each is documented in full — with the rationale — in
+**[docs/architecture.md](docs/architecture.md)**; this is the summary:
 
-**Install method**
+| Area           | Deviation                                                                                                                                 |
+|----------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| Install method | `helm`/`kubectl`, not Argo CD GitOps, so each component is debuggable in isolation (versions still pinned to edp-cluster-add-ons)         |
+| Portal         | in-cluster subchart; runs under Rosetta on Apple Silicon; OIDC login left unwired                                                         |
+| Tekton tasks   | `gitlab-set-status` and `deploy-applicationset-cli` patched for self-signed GitLab / plaintext Argo CD, re-applied after each `make krci` |
+| Argo CD        | single instance (not HA), chart `9.5.17`, plus an apps-in-any-namespace RBAC addition the chart omits                                     |
+| SonarQube      | own minimal Postgres instead of the bundled DB / Crunchy PGO                                                                              |
+| Tekton Results | single stock `postgres:16-alpine` (no Crunchy PGO)                                                                                        |
+| GitLab         | self-hosted dependency on self-signed HTTPS; CoreDNS split-horizon + containerd registry mirror                                           |
+| Registry       | reuses GitLab's own Container Registry at `:5050` instead of a separate one                                                               |
 
-- **helm/kubectl, not Argo CD GitOps** — versions still pinned to edp-cluster-add-ons,
-  but applied directly so each component is debuggable in isolation.
-- **In-cluster Portal** — `krci-portal` subchart enabled, wired to in-cluster Services
-  (`portal-config` + secret `krci-portal-secret`, HTTPS ingress). Pins the **amd64 image**
-  (arm64 variant has a `better_sqlite3` bug) under Docker Desktop's Rosetta. Token login is
-  OIDC-only (no issuer in kind), so it's not wired here.
+For the how and why behind each row, see [docs/architecture.md](docs/architecture.md)
+and [docs/gitlab-integration.md](docs/gitlab-integration.md).
 
-**Patched Tekton tasks** (applied by the `*-integrate` steps after `make krci`; Helm 4
-server-side apply resets them to chart-stock on each run, so `make krci` uses
-`--force-conflicts` and the integrate steps re-apply):
-
-- **`gitlab-set-status`** — the stock task mis-parsed our `ssh://…:32222/…` git URL
-  (posted status to host `ssh`) and verified TLS against the self-signed cert, aborting
-  every run at `report-pipeline-start-to-gitlab`. Patched (`scripts/gitlab-set-status.py`)
-  to extract the host from any URL form and skip TLS verification.
-- **`deploy-applicationset-cli`** — the `argocd` CLI defaults to TLS, but our server is
-  plaintext; the integrate script adds `--plaintext` to `ARGOCD_OPTS`.
-
-**Argo CD** — runs as a deliberate laptop-footprint **single instance** (one replica
-each + single Redis, dex/notifications off), deviating from KRCI's documented HA install.
-The ApplicationSet controller is kept (KRCI's CD deploy needs it). Uses the **latest**
-chart (`9.5.17`; add-ons pins `9.5.13`). Adds an **appset RBAC hack**
-(`manifests/argocd-appset-rbac.yaml`) granting the appset controller cluster-scoped
-rights the chart omits, required for apps-in-any-namespace.
-
-**SonarQube** — uses our **own minimal Postgres** (`postgresql.enabled: false` +
-`jdbcOverwrite`) instead of the chart's deprecated bundled DB or Crunchy PGO. The chart
-requires `monitoringPasscode` to become Ready, and its `setAdminPassword` hook automates
-the forced first-login password change.
-
-**Tekton Results** — single stock `postgres:16-alpine` (Crunchy PGO intentionally not
-installed); it satisfies the canonical manifest's DB contract, used unmodified except for
-pinning the `logs` PVC namespace.
-
-**Self-hosted GitLab** — added as a platform dependency (KRCI supports
-gitlab/github/gerrit/bitbucket). Serves **HTTPS with a self-signed cert**
-(the operator's API client only speaks https), so the operator CA trust is mounted into
-codebase-operator + gitfusion. **CoreDNS split-horizon** + a **kind containerd registry
-mirror** (`hosts.toml`) let in-cluster and node-level pulls reach the GitLab registry.
-
-**Container registry = GitLab's own** — build pipelines push to
-`gitlab.127.0.0.1.nip.io:5050/krci/<codebase>` (`global.dockerRegistry` is empty in stock
-KRCI). kaniko trusts the self-signed registry cert (`edp-tekton.kaniko.customCert`); a
-group deploy token backs both push (`kaniko-docker-config`) and pull (`regcred`).
-
-## Layout
+## Repository layout
 
 ```
 Makefile                                # all orchestration (versions pinned at top; make help)
@@ -215,17 +277,71 @@ scripts/gitlab-integrate.sh             # (post-krci) CA trust + task patch + Gi
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script
 scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts + ci-argocd + deploy patch
 scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube secret
-docs/gitlab-declarative-refactor.md     # rationale for deps-first / KRCI-last ordering
+docs/architecture.md                    # design: deps-first/KRCI-last, DNS, CA trust, CI→CD lifecycle
+docs/gitlab-integration.md              # self-hosted GitLab webhook path in depth
 ```
+
+## FAQ
+
+**What is this repository, exactly?**
+A one-command **local installer and test harness** that brings the full
+KubeRocketCI platform up in a `kind` cluster on Docker Desktop. It is not KRCI
+itself — it installs and wires KRCI plus its dependencies for local use.
+
+**How long does it take and what does it need?**
+About **18–20 minutes** for `make testbed` and **~12 minutes** for `make e2e`, on
+Docker Desktop with **12 GB+ RAM** allocated for the full bed.
+
+**Does it work on Apple Silicon (arm64)?**
+Yes. A few images are amd64-only (Portal, GitLab, sonar-operator) and run under
+Docker Desktop's Rosetta emulation; everything else is multi-arch.
+
+**Can I install just one component?**
+Yes — every capability target (`make sonar`, `make argocd`, `make prometheus`, …)
+is independent and idempotent. Rebuild or debug one without touching the rest.
+
+**Is it safe to expose this or use it in production?**
+**No.** It uses fixed credentials, self-signed certs, skipped TLS verification, and
+broad RBAC, all bound to localhost. It is a throwaway local bed only — see
+[SECURITY.md](SECURITY.md).
+
+**How is this different from a real KubeRocketCI install?**
+The platform is installed with `helm`/`kubectl` instead of Argo CD GitOps (so each
+piece is debuggable), Argo CD runs single-instance instead of HA, and a handful of
+local patches/credentials make self-signed GitLab and plaintext Argo CD work. See
+[Local deviations & patches](#local-deviations--patches).
+
+**How do I upgrade a component version?**
+Versions are pinned at the top of the `Makefile` (`EDP_VERSION`,
+`PROM_CHART_VERSION`, `ARGOCD_CHART_VERSION`, the Tekton URLs, …) and in
+`values/*.yaml`. Bump there; each can be overridden ad hoc with `make VAR=value`.
+
+**How do I tear everything down?**
+`make down` deletes the whole `kind` cluster. Nothing persists outside it.
+
+## Documentation
+
+- **This repo:** [docs/architecture.md](docs/architecture.md) ·
+  [docs/gitlab-integration.md](docs/gitlab-integration.md)
+- **Official KubeRocketCI docs:** <https://docs.kuberocketci.io>
+
+## Contributing
+
+Contributions are welcome — bug reports, version bumps, new local-platform
+capabilities, and docs. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and our
+[Code of Conduct](CODE_OF_CONDUCT.md). For security issues, follow
+[SECURITY.md](SECURITY.md) (do not open public issues for vulnerabilities).
 
 ## Notes
 
 - **DNS:** the `nip.io` wildcard (`*.127.0.0.1.nip.io`) maps every ingress host to
   localhost — no `/etc/hosts` edits.
-- **Tekton webhook race:** the `tekton` target waits for the pipelines/triggers
-  *webhooks* (not just controllers) before KRCI applies its Pipeline CRs, else the helm
-  install fails with `connection refused` on `webhook.pipeline.tekton.dev`.
 - **Versions** are pinned at the top of the `Makefile` (`EDP_VERSION`,
-  `PROM_CHART_VERSION`, `ARGOCD_CHART_VERSION`, the Tekton URLs, …). Bump there to upgrade.
+  `PROM_CHART_VERSION`, `ARGOCD_CHART_VERSION`, the Tekton URLs, …). Bump there to
+  upgrade.
 
-```
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). Copyright 2026 The KubeRocketCI
+Authors. See [NOTICE](NOTICE) for third-party attributions — the upstream
+components this repo installs remain under their own licenses.
