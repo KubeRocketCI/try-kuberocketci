@@ -5,13 +5,17 @@
 #   1. mount the GitLab CA into codebase-operator (no chart hook for its volumes;
 #      gitfusion gets the same CA declaratively via gitfusion.volumes in values),
 #   2. fix the upstream gitlab-set-status task (host parse + self-signed TLS),
-#   3. onboard the krci-gitops Codebase (no `codebases` values section).
+#   3. onboard the krci-gitops Codebase (no `codebases` values section),
+#   4. wire the GitLab Package Registry into the maven build (settings ConfigMap +
+#      maven task patch) — both chart-owned, so reset by Helm SSA and re-applied here.
 # The GitServer/EventListener/Ingress themselves come from edp-tekton.gitServers.
 set -euo pipefail
 
 CTX="${CTX:-kind-krci}"
 NS="${NS:-krci}"
 GS_NAME="gitlab"
+WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
+GL_HOST="gitlab.${WILDCARD}"
 KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -44,6 +48,21 @@ if $KUBECTL -n "$NS" get task gitlab-set-status >/dev/null 2>&1; then
   $KUBECTL -n "$NS" patch task gitlab-set-status --type=json -p "$PATCH"
 else
   echo "    (skip) gitlab-set-status task not found — run 'make krci' first"
+fi
+
+echo "==> Wiring the GitLab Package Registry into the maven build"
+# settings.xml -> GitLab (no Nexus mirror; Basic auth; group resolve; per-project
+# deploy) and the maven task patch (CA trust + CI_PROJECT_ID + wagon transport, none
+# expressible in settings.xml). Both are chart-owned, so Helm SSA resets them on every
+# `make krci` -> re-applied here with --force-conflicts. Needs secret ci-nexus (gitlab-up)
+# and cm gitlab-ca (gitlab-up). See docs/registry-integration.md.
+sed -e "s#__GL_HOST__#${GL_HOST}#g" -e "s#__GROUP__#${NS}#g" \
+  "$HERE/manifests/custom-maven-settings.yaml" | $KUBECTL apply --server-side --force-conflicts -f -
+if $KUBECTL -n "$NS" get task maven >/dev/null 2>&1; then
+  $KUBECTL apply --server-side --force-conflicts -f "$HERE/manifests/maven-task-gitlab.yaml" >/dev/null
+  echo "    maven task patched (trust-gitlab-ca + wagon); settings -> https://$GL_HOST group/$NS"
+else
+  echo "    (skip) maven task not found — run 'make krci' first"
 fi
 
 echo "==> Onboarding the KubeRocketCI GitOps repository ($NS/krci-gitops)"

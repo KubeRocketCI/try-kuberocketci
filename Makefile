@@ -280,6 +280,10 @@ gitlab-integrate: ## (post-krci) operator CA trust + gitlab-set-status fix + Git
 e2e: ## Validate end-to-end: MR -> review -> merge -> build -> deploy (demo/dev); PASS = all green + app deployed
 	bash scripts/e2e.sh
 
+.PHONY: e2e-java
+e2e-java: ## Validate Java/Maven -> GitLab Package Registry: onboard -> MR -> review -> merge -> build (registry tasks green; docker image build is a known arm64 base-image issue)
+	bash scripts/e2e-java.sh
+
 .PHONY: gitlab-status
 gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 	@echo "--- gitlab pod ---";    $(KUBECTL) -n gitlab get pods 2>/dev/null || echo "(not installed)"

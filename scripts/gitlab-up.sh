@@ -187,6 +187,34 @@ else
   echo "    (warn) could not mint registry deploy token; create kaniko-docker-config/regcred manually"
 fi
 
+echo "==> Package registry: '$NS' group deploy token -> ci-nexus (ns/$NS)"
+# The edp-tekton maven/npm/python build tasks read secret 'ci-nexus' (keys
+# username/password/url). KRCI here has no Nexus, so point it at GitLab's Package
+# Registry. Separate group deploy token with PACKAGE scopes (krci-registry above is
+# container-registry only). Delete only prior 'krci-packages' tokens (the krci-registry
+# block above already delete-all's; we must not clobber the token it just created).
+PKG_JSON="$($KUBECTL -n $GL_NS exec "$POD" -- bash -c "
+for id in \$(curl -sk -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens | grep -o '\"id\":[0-9]*' | grep -o '[0-9]*'); do
+  curl -sk -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens/\$id | grep -q '\"name\":\"krci-packages\"' \
+    && curl -sk -X DELETE -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens/\$id >/dev/null
+done
+curl -sk -X POST -H 'PRIVATE-TOKEN: $TOKEN' -H 'Content-Type: application/json' \
+  -d '{\"name\":\"krci-packages\",\"username\":\"krci-packages\",\"scopes\":[\"read_package_registry\",\"write_package_registry\"]}' \
+  https://localhost/api/v4/groups/$NS/deploy_tokens
+")"
+PKG_TOKEN="$(printf '%s' "$PKG_JSON" | grep -o '"token":"[^"]*"' | head -1 | sed -E 's/.*:"([^"]*)"/\1/')"
+if [ -n "$PKG_TOKEN" ]; then
+  $KUBECTL -n "$NS" create secret generic ci-nexus \
+    --from-literal=username=krci-packages \
+    --from-literal=password="$PKG_TOKEN" \
+    --from-literal=url="https://${GL_HOST}" \
+    --dry-run=client -o yaml | $KUBECTL apply -f -
+  $KUBECTL -n "$NS" label secret ci-nexus \
+    app.edp.epam.com/secret-type=nexus app.edp.epam.com/integration-secret=true --overwrite >/dev/null
+else
+  echo "    (warn) could not mint package deploy token; create secret ci-nexus manually"
+fi
+
 echo "==> Teaching the kind node's containerd to pull from the GitLab registry"
 # Deployed workloads reference gitlab.127.0.0.1.nip.io:5050/<group>/<repo>, but containerd
 # on the NODE resolves that host to 127.0.0.1 (nip.io) — the CoreDNS rewrite only helps

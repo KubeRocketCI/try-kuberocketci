@@ -1,0 +1,142 @@
+# Patched edp-tekton `maven` Task for GitLab Package Registry builds.
+#
+# The chart-stock maven task assumes Nexus and has no way to (a) trust GitLab's
+# self-signed TLS, (b) provide a per-project publish target, or (c) avoid the
+# Maven-3.9 upload bug against GitLab. settings.xml can express none of these, so
+# they live here. scripts/gitlab-integrate.sh re-applies this AFTER `make krci`
+# (Helm 4 SSA resets the chart copy on every install) with --force-conflicts.
+#
+# Deltas vs chart-stock (see docs/registry-integration.md):
+#   - trust-gitlab-ca pre-step: imports cm/gitlab-ca into a JVM truststore AND
+#     derives CI_PROJECT_ID (url-encoded group%2Fname) from the repo's git remote.
+#   - mvn step: bash wrapper exports CI_PROJECT_ID; MAVEN_OPTS forces the wagon
+#     transport (trusts the truststore + avoids GitLab's 415 on uploads).
+#   - extra volumes: gitlab-ca (ConfigMap, from gitlab-up) + trust (emptyDir).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: maven
+  namespace: krci
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: 0.24.0
+    helm.sh/chart: edp-tekton-0.24.0
+  annotations:
+    meta.helm.sh/release-name: edp
+    meta.helm.sh/release-namespace: krci
+spec:
+  description: >-
+    Runs a Maven build using custom Maven settings, with SonarQube and GitLab
+    Package Registry integration (CA trust + per-project publish + wagon transport).
+  params:
+  - default: docker.io/maven:3.9.0-eclipse-temurin-11
+    description: Maven base image
+    name: MAVEN_IMAGE
+    type: string
+  - default:
+    - package
+    description: maven goals to run
+    name: GOALS
+    type: array
+  - default: source
+    description: The context directory within the repository for sources on which we want to execute maven goals.
+    name: CONTEXT_DIR
+    type: string
+  - default: ci-nexus
+    description: name of the secret holding the artifact-registry CI integration data
+    name: ci-nexus
+    type: string
+  - default: ci-sonarqube
+    description: name of the secret holding the Sonarqube CI integration data
+    name: ci-sonarqube
+    type: string
+  steps:
+  - name: trust-gitlab-ca
+    image: $(params.MAVEN_IMAGE)
+    computeResources: {}
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      # (a) Trust the GitLab self-signed CA so Maven can reach the GitLab Package
+      #     Registry over HTTPS (settings.xml has no TLS knob).
+      cp -f "$JAVA_HOME/lib/security/cacerts" /trust/cacerts
+      chmod u+w /trust/cacerts
+      keytool -importcert -noprompt -trustcacerts -alias gitlab \
+        -file /var/gitlab-ca/gitlab-ca.crt -keystore /trust/cacerts -storepass changeit
+      # (b) Derive the GitLab project path (url-encoded group%2Fname) from the
+      #     cloned repo's origin remote. GitLab accepts the encoded path as :id, so
+      #     `mvn deploy` can publish to .../projects/<path>/packages/maven without an
+      #     API token. Empty if not a git repo (e.g. review-only goals).
+      cfg="$(workspaces.source.path)/$(params.CONTEXT_DIR)/.git/config"
+      url="$(awk '/\[remote "origin"\]/{f=1;next} f&&/^[[:space:]]*url[[:space:]]*=/{sub(/^[^=]*=[[:space:]]*/,"");print;exit}' "$cfg" 2>/dev/null || true)"
+      ns="$(printf '%s' "${url%.git}" | awk -F'[/:]' 'NF>=2{print $(NF-1)"/"$NF}')"
+      enc="$(printf '%s' "$ns" | sed 's#/#%2F#g')"
+      printf '%s' "$enc" > /trust/ci_project_id
+      echo "[TEKTON][INFO] CI_PROJECT_ID='$enc' (from origin '$url')"
+    volumeMounts:
+    - { name: gitlab-ca, mountPath: /var/gitlab-ca }
+    - { name: trust, mountPath: /trust }
+  - name: mvn-goals
+    command:
+    - bash
+    - -c
+    args:
+    - |
+      export CI_PROJECT_ID="$(cat /trust/ci_project_id 2>/dev/null)"
+      exec /usr/bin/mvn -s /var/configmap/settings.xml "$@"
+    - mvn
+    - $(params.GOALS)
+    computeResources:
+      limits:
+        cpu: "2"
+        memory: 3Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    env:
+    - name: HOME
+      value: $(workspaces.source.path)
+    - name: MAVEN_OPTS
+      # wagon transport: (1) trusts the GitLab self-signed CA via the JVM truststore,
+      # (2) avoids GitLab's 415 on uploads that Maven 3.9's default (native) transport hits.
+      value: -Dmaven.resolver.transport=wagon -Djavax.net.ssl.trustStore=/trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit
+    - name: SONAR_TOKEN
+      valueFrom:
+        secretKeyRef:
+          key: token
+          name: $(params.ci-sonarqube)
+    - name: SONAR_HOST_URL
+      valueFrom:
+        secretKeyRef:
+          key: url
+          name: $(params.ci-sonarqube)
+    - name: CI_USERNAME
+      valueFrom:
+        secretKeyRef:
+          key: username
+          name: $(params.ci-nexus)
+    - name: CI_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: $(params.ci-nexus)
+    image: $(params.MAVEN_IMAGE)
+    name: mvn-goals
+    volumeMounts:
+    - mountPath: /var/configmap
+      name: settings-maven
+    - mountPath: /trust
+      name: trust
+    workingDir: $(workspaces.source.path)/$(params.CONTEXT_DIR)
+  volumes:
+  - configMap:
+      name: custom-maven-settings
+    name: settings-maven
+  - configMap:
+      name: gitlab-ca
+    name: gitlab-ca
+  - emptyDir: {}
+    name: trust
+  workspaces:
+  - description: The workspace consisting of maven project.
+    name: source

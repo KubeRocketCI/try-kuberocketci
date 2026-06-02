@@ -1,0 +1,79 @@
+# GitLab Package Registry settings.xml for the edp-tekton `maven` build task.
+#
+# Overrides the chart-stock custom-maven-settings ConfigMap (which targets Sonatype
+# Nexus at nexus.nexus:8081). KRCI here has no Nexus — build pipelines use GitLab's
+# Package Registry instead. scripts/gitlab-integrate.sh substitutes __GL_HOST__ and
+# __GROUP__ and applies this AFTER `make krci` (Helm SSA resets the chart copy).
+#
+# What changed vs stock (see docs/registry-integration.md):
+#   - no <mirrors>: GitLab CE can't proxy public registries, so Maven Central
+#     resolves directly (Maven's built-in default).
+#   - gitlab-maven server uses HTTP Basic auth (CI_USERNAME/CI_PASSWORD injected by
+#     the task from secret ci-nexus = the krci-packages GitLab deploy token).
+#   - active gitlab-registry profile: resolve internal artifacts from the GROUP
+#     endpoint; publish (mvn deploy) to the per-project endpoint via $CI_PROJECT_ID
+#     (the maven task derives it from the repo's git remote).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-maven-settings
+  namespace: krci
+data:
+  settings.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+        <localRepository>/workspace/source/cache</localRepository>
+
+        <pluginGroups>
+            <pluginGroup>org.sonarsource.scanner.maven</pluginGroup>
+        </pluginGroups>
+
+        <servers>
+            <!-- GitLab Package Registry. Basic auth: username = deploy-token user,
+                 password = deploy token. Both injected from secret ci-nexus
+                 (CI_USERNAME / CI_PASSWORD) by the maven task. -->
+            <server>
+                <id>gitlab-maven</id>
+                <username>${env.CI_USERNAME}</username>
+                <password>${env.CI_PASSWORD}</password>
+            </server>
+        </servers>
+
+        <!-- NO <mirrors>: GitLab CE cannot proxy Maven Central, so public
+             dependencies resolve directly from Central. GitLab is added below
+             only as an extra repository for internal artifacts. -->
+
+        <profiles>
+            <profile>
+                <id>sonar</id>
+                <activation><activeByDefault>true</activeByDefault></activation>
+                <properties>
+                    <sonar.token>${env.SONAR_TOKEN}</sonar.token>
+                    <sonar.host.url>${env.SONAR_HOST_URL}</sonar.host.url>
+                </properties>
+            </profile>
+
+            <!-- Resolve internal artifacts from the krci GROUP endpoint; publish to
+                 the per-project endpoint. Publishing needs CI_PROJECT_ID (set by the
+                 maven task's trust-gitlab-ca step); resolution needs nothing extra. -->
+            <profile>
+                <id>gitlab-registry</id>
+                <repositories>
+                    <repository>
+                        <id>gitlab-maven</id>
+                        <url>https://__GL_HOST__/api/v4/groups/__GROUP__/-/packages/maven</url>
+                        <releases><enabled>true</enabled></releases>
+                        <snapshots><enabled>true</enabled></snapshots>
+                    </repository>
+                </repositories>
+                <properties>
+                    <altReleaseDeploymentRepository>gitlab-maven::https://__GL_HOST__/api/v4/projects/${env.CI_PROJECT_ID}/packages/maven</altReleaseDeploymentRepository>
+                    <altSnapshotDeploymentRepository>gitlab-maven::https://__GL_HOST__/api/v4/projects/${env.CI_PROJECT_ID}/packages/maven</altSnapshotDeploymentRepository>
+                </properties>
+            </profile>
+        </profiles>
+
+        <activeProfiles>
+            <activeProfile>gitlab-registry</activeProfile>
+        </activeProfiles>
+    </settings>

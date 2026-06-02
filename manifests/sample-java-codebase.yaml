@@ -1,0 +1,40 @@
+# Java/Maven sample Codebase for `make e2e-java`.
+#
+# Exercises the GitLab Package Registry integration end-to-end: the maven build
+# tasks resolve dependencies (Maven Central directly + the krci GROUP endpoint for
+# internal artifacts) and publish via `mvn deploy` to the per-project endpoint —
+# using secret ci-nexus + the GitLab-aware custom-maven-settings + the patched
+# maven task (all wired by gitlab-up/gitlab-integrate).
+#
+# Like the Go sample, `create` scaffolds the project from a template
+# (github.com/epmd-edp/java-maven-java17, chosen by lang+buildTool+framework) and
+# pushes it into a new GitLab project krci/test-java-app under the 'krci' group.
+apiVersion: v2.edp.epam.com/v1
+kind: Codebase
+metadata:
+  name: test-java-app
+  namespace: krci
+spec:
+  type: application
+  lang: java
+  framework: java17
+  buildTool: maven
+  ciTool: tekton
+  strategy: create
+  emptyProject: false
+  defaultBranch: main
+  gitServer: gitlab
+  gitUrlPath: /krci/test-java-app
+  deploymentScript: helm-chart
+  versioning:
+    type: default
+---
+apiVersion: v2.edp.epam.com/v1
+kind: CodebaseBranch
+metadata:
+  name: test-java-app-main
+  namespace: krci
+spec:
+  codebaseName: test-java-app
+  branchName: main
+  release: false
