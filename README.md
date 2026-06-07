@@ -34,6 +34,9 @@ up with a couple of commands and poke at any component in isolation.
 - **KubeRocketCI Portal** — the platform UI, in-cluster
 - **A real, automated end-to-end run** — `make e2e` drives MR → review → merge →
   build → deploy and asserts the app is live, no clicking required
+- **GitLab CI as an alternative CI engine** (multi-CI) — set `ciTool: gitlab` to run
+  pipelines in GitLab CI on an in-cluster runner instead of Tekton; `make e2e-gitlabci`
+  proves it green. See [docs/gitlab-ci.md](docs/gitlab-ci.md)
 
 ---
 
@@ -143,6 +146,9 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
   task patches, and the CI → CD lifecycle.
 - **[docs/gitlab-integration.md](docs/gitlab-integration.md)** — the self-hosted
   GitLab webhook path in depth.
+- **[docs/gitlab-ci.md](docs/gitlab-ci.md)** — running CI in **GitLab CI instead of
+  Tekton** (`ciTool: gitlab`): the injected `.gitlab-ci.yml`, the mirrored
+  `ci-java17-mvn` component, the GitLab Runner, and the local deviations.
 
 ## What `make testbed` installs
 
@@ -203,8 +209,13 @@ make testbed          # the full platform, in the order shown above
 make status           # cluster + KRCI + capabilities overview + values for the Portal .env
 make token            # 24h cluster-admin bearer token (Portal login)
 make e2e              # MR -> review -> merge -> build -> deploy (demo/dev)
+make e2e-java         # Java/Maven -> GitLab Package Registry (Tekton CI)
 make krci-dry-run     # render the edp-install chart without installing
 make down             # delete the kind cluster
+
+# GitLab CI instead of Tekton (multi-CI) — see docs/gitlab-ci.md
+make gitlab-ci        # set up: install the GitLab Runner + mirror the ci-java17-mvn component + onboard the Java app
+make e2e-gitlabci     # MR -> review pipeline -> merge -> build pipeline; PASS = both green (GitLab CI, not Tekton)
 ```
 
 ## End-to-end test (`make e2e`)
@@ -260,6 +271,7 @@ values/edp-install.yaml                 # KubeRocketCI chart values (in-cluster 
 values/kube-prometheus-stack.yaml       # Prometheus + Grafana values
 values/argo-cd.yaml                     # Argo CD chart values (single instance)
 values/sonarqube.yaml                   # SonarQube chart values (community, external jdbc)
+values/gitlab-runner.yaml               # GitLab CI: GitLab Runner chart values (k8s executor, native arm64)
 manifests/krci-portal-secret.yaml       # Portal SERVER_SECRET/OIDC_CLIENT_SECRET (applied pre-krci)
 manifests/argocd-appproject-krci.yaml   # Argo CD AppProject 'krci'
 manifests/argocd-appset-rbac.yaml       # cluster-scoped RBAC for the appset controller
@@ -271,14 +283,20 @@ manifests/gitlab.yaml                   # self-hosted GitLab CE (HTTPS, single p
 manifests/sample-codebase.yaml          # e2e: Codebase that exercises the webhook
 manifests/cdpipeline-demo.yaml          # e2e: CDPipeline 'demo' + Stage 'dev'
 manifests/krci-gitops.yaml              # GitOps repo (system/helm codebase KRCI requires)
+manifests/sample-gitlabci-codebase.yaml # GitLab CI: ciTool=gitlab Codebase + branch
+manifests/gitlab-ci-java-maven-configmap.yaml # GitLab CI: injected .gitlab-ci.yml template (mirrored component)
 scripts/e2e.sh                          # full e2e: MR -> review -> merge -> build -> deploy
 scripts/gitlab-up.sh                    # (pre-krci) deploy GitLab + creds/secrets + CoreDNS
 scripts/gitlab-integrate.sh             # (post-krci) CA trust + task patch + GitOps repo
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script
 scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts + ci-argocd + deploy patch
 scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube secret
+scripts/gitlab-runner.sh                # GitLab CI: install + register the GitLab Runner
+scripts/gitlab-ci-onboard.sh            # GitLab CI: mirror the ci-java17-mvn component + onboard the app
+scripts/e2e-gitlabci.sh                 # GitLab CI: e2e (MR -> review -> merge -> build; not Tekton)
 docs/architecture.md                    # design: deps-first/KRCI-last, DNS, CA trust, CI→CD lifecycle
 docs/gitlab-integration.md              # self-hosted GitLab webhook path in depth
+docs/gitlab-ci.md                       # GitLab CI instead of Tekton (ciTool: gitlab) + the GitLab Runner
 ```
 
 ## FAQ
@@ -322,7 +340,8 @@ Versions are pinned at the top of the `Makefile` (`EDP_VERSION`,
 ## Documentation
 
 - **This repo:** [docs/architecture.md](docs/architecture.md) ·
-  [docs/gitlab-integration.md](docs/gitlab-integration.md)
+  [docs/gitlab-integration.md](docs/gitlab-integration.md) ·
+  [docs/gitlab-ci.md](docs/gitlab-ci.md)
 - **Official KubeRocketCI docs:** <https://docs.kuberocketci.io>
 
 ## Contributing

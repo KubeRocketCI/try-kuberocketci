@@ -4,7 +4,9 @@ How a Merge Request in the in-cluster, self-hosted GitLab triggers a KubeRocketC
 Tekton pipeline through the **edp-tekton GitLab EventListener** and the **`gitlab`
 ClusterInterceptor**. This documents how the integration is wired in this repo.
 
-For the broader install design, see [architecture.md](architecture.md).
+For the broader install design, see [architecture.md](architecture.md). To run a
+codebase's CI in **GitLab CI instead of Tekton** (`ciTool: gitlab`), see
+[gitlab-ci.md](gitlab-ci.md).
 
 ## The webhook path
 

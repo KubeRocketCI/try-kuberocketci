@@ -48,6 +48,10 @@ SONAR_NS           ?= sonar
 # NB: GitLab 17.x rejects passwords containing the app name ("gitlab") or the username
 # ("root") as "commonly used", so keep this clear of those words.
 GITLAB_ROOT_PASSWORD ?= KrciLocal_2026!
+# GitLab Runner (Kubernetes executor) for the GitLab CI path. Chart appVersion 17.5.x
+# matches GitLab CE 17.5.1. KubeRocketCI does not bundle a runner; the GitLab CI
+# pipeline (Codebase ciTool=gitlab) needs one to execute jobs.
+GITLAB_RUNNER_CHART_VERSION ?= 0.70.5
 VALUES             ?= values/edp-install.yaml
 KUBECTL            := kubectl --context $(CTX)
 
@@ -284,6 +288,19 @@ e2e: ## Validate end-to-end: MR -> review -> merge -> build -> deploy (demo/dev)
 e2e-java: ## Validate Java/Maven -> GitLab Package Registry: onboard -> MR -> review -> merge -> build (registry tasks green; docker image build is a known arm64 base-image issue)
 	bash scripts/e2e-java.sh
 
+# ---- GitLab CI (alternative CI engine to Tekton) ----------------------------
+# KubeRocketCI multi-CI: a Codebase with spec.ciTool=gitlab runs its CI in GitLab CI
+# (operator injects .gitlab-ci.yml, skips the Tekton EventListener) instead of Tekton.
+# `make gitlab-ci` sets it up (runner + onboard); `make e2e-gitlabci` validates it.
+.PHONY: gitlab-ci
+gitlab-ci: ## (GitLab CI) Set up CI in GitLab CI instead of Tekton: install the runner + onboard the Java app
+	GITLAB_RUNNER_CHART_VERSION='$(GITLAB_RUNNER_CHART_VERSION)' bash scripts/gitlab-runner.sh
+	bash scripts/gitlab-ci-onboard.sh
+
+.PHONY: e2e-gitlabci
+e2e-gitlabci: ## (GitLab CI) Validate GitLab CI instead of Tekton: MR -> review pipeline green -> merge -> build pipeline green
+	bash scripts/e2e-gitlabci.sh
+
 .PHONY: gitlab-status
 gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 	@echo "--- gitlab pod ---";    $(KUBECTL) -n gitlab get pods 2>/dev/null || echo "(not installed)"
@@ -293,6 +310,8 @@ gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 	@echo "--- el ingress ---";    $(KUBECTL) -n $(NS) get ingress event-listener-gitlab 2>/dev/null || echo "(none yet)"
 	@echo "--- coredns rewrites ---"; $(KUBECTL) -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | grep 'rewrite name' || true
 	@echo "--- pipelineruns ---";  $(KUBECTL) -n $(NS) get pipelinerun 2>/dev/null | tail -8 || echo "(none)"
+	@echo "--- gitlab runner (GitLab CI path) ---"; $(KUBECTL) -n gitlab-runner get pods 2>/dev/null | grep -E 'gitlab-runner|NAME' || echo "(not installed — run make gitlab-ci)"
+	@echo "--- gitlab-ci codebase ---"; $(KUBECTL) -n $(NS) get codebase java-gitlabci-app 2>/dev/null || echo "(none — run make gitlab-ci)"
 
 # ---- lifecycle --------------------------------------------------------------
 .PHONY: up

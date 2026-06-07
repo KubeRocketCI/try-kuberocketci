@@ -1,0 +1,65 @@
+# GitLab Runner (Kubernetes executor) for the KubeRocketCI GitLab CI path.
+# Chart: gitlab/gitlab-runner 0.70.x  (runner appVersion 17.5.x — matches GitLab CE 17.5.1).
+#
+# KubeRocketCI does NOT bundle a runner: with Codebase spec.ciTool=gitlab the
+# codebase-operator skips the Tekton EventListener and instead pushes a .gitlab-ci.yml,
+# so the pipeline runs as GitLab CI jobs — which need a registered runner to execute.
+# scripts/gitlab-runner.sh mints a GitLab 17.x runner *authentication* token
+# (POST /api/v4/user/runners, runner_type=instance_type) and passes it via --set
+# runnerToken, so this file carries no token.
+#
+# Self-signed GitLab: the runner manager (registration + job artifacts/API) and the
+# job pods (git clone) reach https://gitlab.127.0.0.1.nip.io, so they must trust the
+# GitLab CA. Two belts: (1) certsSecretName mounts the CA at /etc/gitlab-runner/certs
+# (key MUST be <host>.crt), and (2) GIT_SSL_NO_VERIFY=true in the job environment
+# covers git operations in job images that don't read that store (e.g. alpine/git).
+
+gitlabUrl: https://gitlab.127.0.0.1.nip.io/
+
+# Trust the GitLab self-signed CA (secret created by scripts/gitlab-runner.sh from
+# secret gitlab-tls). The key name must be "<gitlabUrl host>.crt".
+certsSecretName: gitlab-runner-certs
+
+# Clean up the server-side runner on `helm uninstall`.
+unregisterRunners: true
+
+# A few jobs run concurrently (the Java review pipeline fans out test/lint/sonar/...).
+concurrent: 6
+checkInterval: 3
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+
+runners:
+  # config.toml [[runners]] block. The new auth-token flow sets tags/untagged/locked
+  # server-side at runner creation (see scripts/gitlab-runner.sh), so they are not here.
+  config: |
+    [[runners]]
+      name = "krci-kubernetes"
+      executor = "kubernetes"
+      # GIT_SSL_NO_VERIFY: job images clone the self-signed GitLab over HTTPS; not all
+      # trust the mounted CA (alpine/git, buildkit), so skip verification (local only).
+      environment = ["GIT_SSL_NO_VERIFY=true"]
+      [runners.kubernetes]
+        namespace = "{{.Release.Namespace}}"
+        image = "alpine:3.21"
+        # Pin the NATIVE arm64 helper — the executor otherwise auto-picks the x86_64
+        # helper, which would run emulated. (Under Rosetta it works but is slower; under
+        # QEMU it crashes outright, "fatal error: lfstack.push" — another reason we never
+        # install QEMU binfmt; see docs/gitlab-ci.md.) The tag tracks the runner version =
+        # chart appVersion (0.70.5 -> 17.5.5).
+        helper_image = "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:arm64-v17.5.5"
+        # privileged build containers: the Java pipeline's dockerbuild-verify /
+        # buildkit-build jobs run moby/buildkit:rootless, which needs an unsandboxed
+        # environment. privileged (the kind node allows it) is the simplest local fit.
+        privileged = true
+        poll_timeout = 900
+        cpu_request = "100m"
+        memory_request = "256Mi"
+        helper_cpu_request = "50m"
+        helper_memory_request = "64Mi"
+        service_cpu_request = "50m"
+        service_memory_request = "64Mi"
