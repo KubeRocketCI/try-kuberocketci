@@ -47,3 +47,14 @@ grafana:
 # Keep the footprint small on kind — no Alertmanager.
 alertmanager:
   enabled: false
+
+# kube-state-metrics (bundled subchart). Expose the app.kubernetes.io/instance pod
+# label as a `kube_pod_labels{label_app_kubernetes_io_instance="…"}` series. The Portal
+# Monitoring tab (getDeploymentMetrics) joins container metrics to codebases on this
+# label via `kube_pod_labels`; KSM omits all label_* series unless allow-listed, so
+# without this the tab silently degrades to live-pods-only (no historical pods) and the
+# server logs `hasKubePodLabels=false`. Passed via extraArgs to mirror edp-cluster-add-ons
+# (clusters/core/addons/prometheus-operator/values.yaml — there under the kube-prometheus-stack alias).
+kube-state-metrics:
+  extraArgs:
+    - --metric-labels-allowlist=pods=[app.kubernetes.io/instance]
