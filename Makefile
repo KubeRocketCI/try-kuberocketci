@@ -52,6 +52,11 @@ GITLAB_ROOT_PASSWORD ?= KrciLocal_2026!
 # matches GitLab CE 17.5.1. KubeRocketCI does not bundle a runner; the GitLab CI
 # pipeline (Codebase ciTool=gitlab) needs one to execute jobs.
 GITLAB_RUNNER_CHART_VERSION ?= 0.70.5
+# Envoy Gateway (Gateway API traffic engine; Portal Networking tab) — the gateway-helm
+# OCI chart installs the Gateway API + Envoy Gateway CRDs, the controller, and the 'eg'
+# GatewayClass. `make envoy` deploys it, exposes the e2e app, and enables proxy metrics.
+ENVOY_GATEWAY_VERSION ?= v1.5.0
+ENVOY_GATEWAY_NS      ?= envoy-gateway-system
 VALUES             ?= values/edp-install.yaml
 KUBECTL            := kubectl --context $(CTX)
 
@@ -312,6 +317,22 @@ gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 	@echo "--- pipelineruns ---";  $(KUBECTL) -n $(NS) get pipelinerun 2>/dev/null | tail -8 || echo "(none)"
 	@echo "--- gitlab runner (GitLab CI path) ---"; $(KUBECTL) -n gitlab-runner get pods 2>/dev/null | grep -E 'gitlab-runner|NAME' || echo "(not installed — run make gitlab-ci)"
 	@echo "--- gitlab-ci codebase ---"; $(KUBECTL) -n $(NS) get codebase java-gitlabci-app 2>/dev/null || echo "(none — run make gitlab-ci)"
+
+# ---- Envoy Gateway (Gateway API traffic engine) -----------------------------
+# The Gateway-API counterpart to `make ingress`: install the controller and the
+# resources it needs, nothing else. `make envoy` installs Envoy Gateway (Gateway API
+# + Envoy CRDs + controller + the 'eg' GatewayClass) and applies the standing PodMonitor
+# so Envoy proxy metrics flow into Prometheus once apps create Gateways. Applications
+# own their Gateway/HTTPRoute objects; the controller reconciles them as they appear.
+# Opt-in (not part of `make up`/`testbed`); idempotent.
+.PHONY: envoy
+envoy: ## Install Envoy Gateway (Gateway API + Envoy CRDs + controller + 'eg' GatewayClass) + proxy metrics PodMonitor
+	helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
+	  --version $(ENVOY_GATEWAY_VERSION) -n $(ENVOY_GATEWAY_NS) --create-namespace \
+	  --wait --timeout 300s
+	$(KUBECTL) -n $(ENVOY_GATEWAY_NS) rollout status deploy/envoy-gateway --timeout=300s
+	$(KUBECTL) wait --for=condition=Accepted gatewayclass/eg --timeout=120s
+	$(KUBECTL) apply -f manifests/envoy-metrics-podmonitor.yaml
 
 # ---- lifecycle --------------------------------------------------------------
 .PHONY: up

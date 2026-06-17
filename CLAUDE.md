@@ -84,6 +84,18 @@ There is no app build/lint/unit-test step — this repo *orchestrates a cluster*
   `.gitlab-ci.yml` that uses the mirrored `kuberocketci/ci-java17-mvn` component; jobs run
   on the in-cluster GitLab Runner. See [docs/gitlab-ci.md](docs/gitlab-ci.md).
 
+## Browser / screenshots
+
+For portal screenshots or headless browser automation, use a self-contained Node.js script in a temp dir — **do not use the Playwright MCP server** (it adds ~10× latency):
+
+```bash
+WORK=$(mktemp -d) && cd "$WORK" && npm init -y >/dev/null && npm i playwright >/dev/null
+npx playwright install chromium >/dev/null
+node -e "const {chromium}=require('playwright'); (async()=>{ ... })()"
+```
+
+If `@playwright/mcp` is configured, prefer the above approach for any multi-step capture task.
+
 ## Working here
 
 - **Repo layout** — everything is driven by the `Makefile` (version pins + namespace
