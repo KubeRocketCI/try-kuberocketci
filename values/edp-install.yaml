@@ -1,5 +1,5 @@
 # KubeRocketCI (edp-install) values for LOCAL kind testing.
-# Chart: epamedp/edp-install 3.13.5  (verified against the chart's own values.yaml)
+# Chart: epamedp/edp-install 3.14.0  (verified against the chart's own values.yaml)
 #
 # Stack that comes up with these values:
 #   codebase-operator, cd-pipeline-operator, edp-tekton (pipelines library),
@@ -96,7 +96,7 @@ externalSecrets:
   enabled: false
   manageEDPInstallSecrets: false
 
-# In-cluster Portal (edp-install subchart krci-portal 0.5.0). Token login is OIDC-only
+# In-cluster Portal (edp-install subchart krci-portal 0.6.0). Token login is OIDC-only
 # and kind has no issuer, so the pod is Ready and serves the UI over HTTPS but login is
 # not wired (needs SA-token support). configEnv overrides only the endpoints the chart
 # placeholders don't resolve to; the rest keep chart defaults via deep merge.
@@ -106,7 +106,7 @@ krci-portal:
   image:
     # amd64 image (arm64 variant has a better_sqlite3 bug); runs under Docker Desktop's
     # Rosetta, like gitlab-ce/sonar-operator. name:tag@digest → digest wins; re-pin on bump.
-    tag: "0.5.0@sha256:ed9931db00d2d6b3b77a1ea19afa589253dc79135355a91d2ce2241992731897"
+    tag: "0.6.0@sha256:687e8ccb9b5add62391490268042c685ad69f434c9ee77fcb07865071aa2c1cb"
 
   configEnv:
     PORTAL_URL: https://portal.127.0.0.1.nip.io
