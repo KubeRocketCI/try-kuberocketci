@@ -32,8 +32,9 @@ KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 # Failures limited to these tasks are the known amd64-only-base-image issue on arm64.
 ARCH_TASKS="dockerbuild-verify container-build"
-# GitLab can deliver the MR webhook twice; the duplicate run fails fast on these.
-DUP_TASKS="report-pipeline-start-to-gitlab gitlab-set-failure-status"
+# GitLab can deliver the MR webhook twice; the duplicate run fails fast on these:
+# the start gate (SHA/context already reported) and its finally reporter.
+DUP_TASKS="report-pipeline-start-to-gitlab gitlab-report-pipeline-status"
 
 say(){ echo "==> $*"; }; info(){ echo "    $*"; }; fail(){ echo "E2E-JAVA: FAIL — $*"; exit 1; }
 docker_note(){ cat <<'EOT'
