@@ -1,5 +1,5 @@
 # KubeRocketCI (edp-install) values for LOCAL kind testing.
-# Chart: epamedp/edp-install 3.14.0  (verified against the chart's own values.yaml)
+# Chart: epamedp/edp-install 3.14.1  (verified against the chart's own values.yaml)
 #
 # Stack that comes up with these values:
 #   codebase-operator, cd-pipeline-operator, edp-tekton (pipelines library),
