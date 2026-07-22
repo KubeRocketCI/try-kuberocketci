@@ -83,6 +83,16 @@ extraInitContainers:
         chown -R 1000:0 /web &&
         rm -f /tmp/sonarqube-webapp.zip
 
+# Trust the self-signed GitLab CA so the ALM integration can reach GitLab over HTTPS
+# to decorate Merge Requests; without it decoration fails on the TLS handshake.
+# ConfigMap gitlab-ca (key/path gitlab-ca.crt) is seeded into ns sonar from krci/gitlab-ca.
+caCerts:
+  enabled: true
+  configMap:
+    name: gitlab-ca
+    key: gitlab-ca.crt
+    path: gitlab-ca.crt
+
 # REQUIRED: without a passcode the readiness probe never passes and the rollout hangs.
 monitoringPasscode: "local-monitoring"
 

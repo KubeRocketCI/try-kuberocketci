@@ -33,8 +33,11 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 # Failures limited to these tasks are the known amd64-only-base-image issue on arm64.
 ARCH_TASKS="dockerbuild-verify container-build"
 # GitLab can deliver the MR webhook twice; the duplicate run fails fast on these:
-# the start gate (SHA/context already reported) and its finally reporter.
-DUP_TASKS="report-pipeline-start-to-gitlab gitlab-report-pipeline-status"
+# the start gate (SHA/context already reported) and its finally reporter. The
+# review pipeline reports via the single 'gitlab-report-pipeline-status'; the build
+# pipeline uses the two-task build vote, of which only 'gitlab-set-failure-status'
+# can report a failed condition.
+DUP_TASKS="report-pipeline-start-to-gitlab gitlab-report-pipeline-status gitlab-set-failure-status"
 
 say(){ echo "==> $*"; }; info(){ echo "    $*"; }; fail(){ echo "E2E-JAVA: FAIL — $*"; exit 1; }
 docker_note(){ cat <<'EOT'

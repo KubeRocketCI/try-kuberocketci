@@ -69,7 +69,7 @@ for it in d['items']:
 failed=sorted(t for t,s in res.items() if s=='False')
 if not failed:
     print('ALL_GREEN')
-elif all(f in ('report-pipeline-start-to-gitlab','gitlab-report-pipeline-status') for f in failed):
+elif all(f in ('report-pipeline-start-to-gitlab','gitlab-report-pipeline-status','gitlab-set-failure-status') for f in failed):
     print('DUP_REPORT_FAIL')
 else:
     print('BAD:'+','.join(failed))
