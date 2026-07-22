@@ -22,10 +22,10 @@ ARGOCD_REPO_URL    ?= https://argoproj.github.io/argo-helm
 ARGOCD_CHART_VERSION ?= 9.5.17
 ARGOCD_NS          ?= argocd
 # Versions pinned to what KubeRocketCI docs specify for edp-tekton compatibility.
-TEKTON_PIPELINE    ?= https://storage.googleapis.com/tekton-releases/pipeline/previous/v1.6.0/release.yaml
-TEKTON_TRIGGERS    ?= https://storage.googleapis.com/tekton-releases/triggers/previous/v0.34.0/release.yaml
-TEKTON_INTERCEPT   ?= https://storage.googleapis.com/tekton-releases/triggers/previous/v0.34.0/interceptors.yaml
-# Tekton Results — canonical KRCI manifest (v0.17.2) copied verbatim from
+TEKTON_PIPELINE    ?= https://storage.googleapis.com/tekton-releases/pipeline/previous/v1.6.2/release.yaml
+TEKTON_TRIGGERS    ?= https://storage.googleapis.com/tekton-releases/triggers/previous/v0.36.0/release.yaml
+TEKTON_INTERCEPT   ?= https://storage.googleapis.com/tekton-releases/triggers/previous/v0.36.0/interceptors.yaml
+# Tekton Results — canonical KRCI manifest (v0.19.0) copied verbatim from
 # edp-cluster-add-ons (clusters/core/addons/tekton/results.yaml). Self-contained:
 # api-config ConfigMap baked in, TLS disabled. Backed by minimal Postgres
 # (manifests/tekton-results-postgres.yaml) that fulfils the manifest's DB contract.
@@ -195,7 +195,7 @@ prometheus: ## Install kube-prometheus-stack ($(PROM_CHART_VERSION)) + Grafana
 	$(KUBECTL) -n $(MONITORING_NS) get pods
 
 .PHONY: tekton-results
-tekton-results: ## Install Tekton Results (v0.17.2, KRCI manifest) + minimal Postgres
+tekton-results: ## Install Tekton Results (v0.19.0, KRCI manifest) + minimal Postgres
 	# 1) minimal Postgres + DB secret (fulfils the manifest's results-primary /
 	# results-pguser-results contract), then 2) the canonical KRCI Results manifest.
 	# The api ConfigMap is baked into the manifest and TLS is disabled, so no
