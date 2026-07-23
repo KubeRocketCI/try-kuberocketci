@@ -22,9 +22,13 @@ ARGOCD_REPO_URL    ?= https://argoproj.github.io/argo-helm
 ARGOCD_CHART_VERSION ?= 9.5.17
 ARGOCD_NS          ?= argocd
 # Versions pinned to what KubeRocketCI docs specify for edp-tekton compatibility.
-TEKTON_PIPELINE    ?= https://storage.googleapis.com/tekton-releases/pipeline/previous/v1.6.2/release.yaml
-TEKTON_TRIGGERS    ?= https://storage.googleapis.com/tekton-releases/triggers/previous/v0.36.0/release.yaml
-TEKTON_INTERCEPT   ?= https://storage.googleapis.com/tekton-releases/triggers/previous/v0.36.0/interceptors.yaml
+# NOTE: Tekton stopped publishing per-release manifests to the legacy
+# storage.googleapis.com/tekton-releases bucket (it froze at Pipelines v1.6.0 /
+# Triggers v0.34.0); newer releases ship only as GitHub release assets, so pull
+# release.yaml / interceptors.yaml from github.com/tektoncd/{pipeline,triggers}.
+TEKTON_PIPELINE    ?= https://github.com/tektoncd/pipeline/releases/download/v1.6.2/release.yaml
+TEKTON_TRIGGERS    ?= https://github.com/tektoncd/triggers/releases/download/v0.36.0/release.yaml
+TEKTON_INTERCEPT   ?= https://github.com/tektoncd/triggers/releases/download/v0.36.0/interceptors.yaml
 # Tekton Results — canonical KRCI manifest (v0.19.0) copied verbatim from
 # edp-cluster-add-ons (clusters/core/addons/tekton/results.yaml). Self-contained:
 # api-config ConfigMap baked in, TLS disabled. Backed by minimal Postgres
