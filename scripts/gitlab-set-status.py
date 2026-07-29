@@ -11,7 +11,8 @@
 #
 # The review pipeline's finally reporter is a single unguarded task that passes
 # PIPELINE_STATUS=$(tasks.status); when set, the script derives STATE/DESCRIPTION
-# from that aggregate. Build pipelines instead pass STATE directly.
+# from that aggregate. Build and review pipelines both pass PIPELINE_STATUS; build
+# reporters vote on the clone result.
 #
 # Tekton substitutes the params placeholders below at TaskRun time. (Do not write
 # a params reference inside a comment — Tekton validates those against real params.)
@@ -40,18 +41,22 @@ CANCEL_REASON = os.getenv("QUEUE_CANCEL_REASON", "")
 
 if PIPELINE_STATUS:
     # Single-reporter mode: derive the state from the aggregate, so every terminal
-    # shape is covered and no when-guard gap can leave the commit status unreported.
+    # shape is covered.
     if PIPELINE_STATUS == "Succeeded":
         STATE, DESCRIPTION = "success", "PASSED"
-    elif PIPELINE_STATUS == "Failed" and not CANCEL_REASON:
-        STATE, DESCRIPTION = "failed", "FAILED"
-    elif PIPELINE_STATUS in ("Failed", "Completed"):
-        # Failed with a stamped cancel reason: the cancellation caught a task
-        # mid-flight. Completed: the cancellation landed between tasks (review
-        # pipelines have no when-skipped regular tasks, so Completed can only mean
-        # cancellation; manual cancels carry no annotation and land here).
+    elif CANCEL_REASON:
+        # The queue stamped a cancel reason: Failed means the cancellation
+        # caught a task mid-flight, Completed means it landed between tasks.
         STATE = "canceled"
         DESCRIPTION = "SUPERSEDED BY NEWER COMMIT" if CANCEL_REASON == "superseded" else "CANCELED"
+    elif PIPELINE_STATUS == "Failed":
+        STATE, DESCRIPTION = "failed", "FAILED"
+    elif PIPELINE_STATUS == "Completed":
+        # Tasks were skipped by when-guards but none failed - a legitimate
+        # success shape for build pipelines. Manual cancels that land between
+        # tasks carry no annotation and are reported as success; accepted
+        # trade-off, see the clone-result-voting design doc.
+        STATE, DESCRIPTION = "success", "PASSED"
     else:
         # None: no aggregate available; not expected in a finally task.
         STATE, DESCRIPTION = "failed", "UNKNOWN"
