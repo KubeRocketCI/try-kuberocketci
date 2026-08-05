@@ -30,6 +30,25 @@ global:
 
 # edp-tekton (pipelines library) configuration.
 edp-tekton:
+  # The Tekton Reporter publishes review-pipeline reports as MR comments over the
+  # GitLab HTTPS API, so it needs the self-signed CA like gitfusion does — without
+  # it every publish fails x509 "unknown authority" and MRs get no report comment.
+  # Same declarative mount of cm `gitlab-ca` (created by scripts/gitlab-up.sh) into
+  # /etc/ssl/certs, which Go scans on top of the system bundle. Failed-step log
+  # tails are always published by chart 0.26.0 (the off-by-default `logsReporting`
+  # switch ships in the next edp-tekton release; add `logsReporting: true` here
+  # when bumping EDP_VERSION past it to keep logs visible).
+  reporter:
+    extraVolumes:
+      - name: gitlab-ca
+        configMap:
+          name: gitlab-ca
+    extraVolumeMounts:
+      - name: gitlab-ca
+        mountPath: /etc/ssl/certs/gitlab-ca.crt
+        subPath: gitlab-ca.crt
+        readOnly: true
+
   # Tell the kaniko build task that the registry uses a custom (self-signed) cert.
   # Flips `custom_certs=true` and mounts the CA at /kaniko/.custom-certs/ca.crt from
   # secret `custom-ca-certificates` (key ca.crt), created by scripts/gitlab-up.sh.
