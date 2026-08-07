@@ -160,7 +160,7 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
 | CI engine    | Tekton Pipelines / Triggers                | v1.6.2 / v0.36.0                | tekton-pipelines |
 | Platform     | KubeRocketCI (edp-install)                 | 3.13.5                          | krci             |
 | Monitoring   | kube-prometheus-stack (+Grafana)           | 84.5.0                          | monitoring       |
-| Run storage  | Tekton Results (+ minimal Postgres)        | v0.19.0                         | tekton-pipelines |
+| Run storage  | Tekton Results (+ minimal Postgres)        | v0.20.0                         | tekton-pipelines |
 | CD engine    | Argo CD (single instance)                  | chart 9.5.17 / v3.4.3           | argocd           |
 | Code quality | SonarQube (+ own Postgres, sonar-operator) | chart 2025.3.1 / 25.5-community | sonar            |
 | SCM          | GitLab CE (+ Container Registry)           | 17.5.1-ce                       | gitlab           |
