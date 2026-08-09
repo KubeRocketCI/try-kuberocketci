@@ -11,7 +11,10 @@ NS="${NS:-krci}"
 SONAR_NS="${SONAR_NS:-sonar}"
 WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 SONAR_HOST="sonar.${WILDCARD}"
-SONAR_API="http://${SONAR_HOST}"
+# https directly (self-signed -> -k): the ingress force-redirects http -> https,
+# and curl strips the Authorization header on the port change of a followed
+# redirect, which turns every authenticated API call into an anonymous one.
+SONAR_API="https://${SONAR_HOST}"
 SONAR_SVC_URL="http://sonar.${SONAR_NS}.svc:9000"   # in-cluster URL the sonar task uses
 KUBECTL="kubectl --context $CTX"
 # Admin creds = the post-install hook-set password (manifests/sonar-admin-secret.yaml),
@@ -22,7 +25,7 @@ ADMIN="admin:${ADMIN_PW}"
 echo "==> Waiting for SonarQube to be ready"
 $KUBECTL -n "$SONAR_NS" rollout status deploy/sonar --timeout=600s
 for _ in $(seq 1 60); do
-  st="$(curl -fsS -m 10 -u "$ADMIN" "$SONAR_API/api/system/status" 2>/dev/null | grep -o '"status":"[^"]*"' | head -1 | sed -E 's/.*:"([^"]*)"/\1/')"
+  st="$(curl -fsSLk -m 10 -u "$ADMIN" "$SONAR_API/api/system/status" 2>/dev/null | grep -o '"status":"[^"]*"' | head -1 | sed -E 's/.*:"([^"]*)"/\1/')"
   [ "$st" = "UP" ] && break
   echo "    system status=${st:-<none>}; waiting..."; sleep 5
 done
@@ -31,7 +34,7 @@ done
 echo "==> Waiting for the operator-created ci-user"
 LOGIN="ci-user"
 for _ in $(seq 1 30); do
-  found="$(curl -fsS -m 10 -u "$ADMIN" "$SONAR_API/api/users/search?q=ci-user" 2>/dev/null | grep -o '"login":"ci-user"' | head -1 || true)"
+  found="$(curl -fsSLk -m 10 -u "$ADMIN" "$SONAR_API/api/users/search?q=ci-user" 2>/dev/null | grep -o '"login":"ci-user"' | head -1 || true)"
   [ -n "$found" ] && break
   echo "    ci-user not reconciled yet; waiting..."; sleep 5
 done
@@ -41,9 +44,9 @@ fi
 
 echo "==> Minting a SonarQube token (login=$LOGIN) for the ci-sonarqube secret"
 # Revoke any prior token of this name so re-runs are idempotent, then generate.
-curl -fsS -m 10 -u "$ADMIN" -X POST "$SONAR_API/api/user_tokens/revoke" \
+curl -fsSLk -m 10 -u "$ADMIN" -X POST "$SONAR_API/api/user_tokens/revoke" \
   --data-urlencode "name=krci-ci" --data-urlencode "login=$LOGIN" >/dev/null 2>&1 || true
-TOKEN="$(curl -fsS -m 10 -u "$ADMIN" -X POST "$SONAR_API/api/user_tokens/generate" \
+TOKEN="$(curl -fsSLk -m 10 -u "$ADMIN" -X POST "$SONAR_API/api/user_tokens/generate" \
   --data-urlencode "name=krci-ci" --data-urlencode "login=$LOGIN" 2>/dev/null \
   | grep -o '"token":"[^"]*"' | head -1 | sed -E 's/.*:"([^"]*)"/\1/')"
 [ -z "${TOKEN:-}" ] && { echo "!! failed to mint a SonarQube token" >&2; exit 1; }

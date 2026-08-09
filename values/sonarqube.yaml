@@ -28,6 +28,9 @@ ingress:
   annotations:
     # Allow large analysis-report uploads.
     nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    # Serve the UI over https only, like the Portal (in-cluster consumers use
+    # http://sonar.sonar.svc:9000 directly and bypass the ingress).
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 
 resources:
   limits:

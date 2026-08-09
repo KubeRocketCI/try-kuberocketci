@@ -115,9 +115,9 @@ externalSecrets:
   enabled: false
   manageEDPInstallSecrets: false
 
-# In-cluster Portal (edp-install subchart krci-portal 0.6.0). Token login is OIDC-only
-# and kind has no issuer, so the pod is Ready and serves the UI over HTTPS but login is
-# not wired (needs SA-token support). configEnv overrides only the endpoints the chart
+# In-cluster Portal (edp-install subchart krci-portal 0.6.0). OIDC is disabled
+# (empty issuer below), so the login screen is ServiceAccount-token only — sign in
+# with the token from `make token`. configEnv overrides only the endpoints the chart
 # placeholders don't resolve to; the rest keep chart defaults via deep merge.
 krci-portal:
   enabled: true
@@ -128,10 +128,14 @@ krci-portal:
     tag: "0.6.0@sha256:687e8ccb9b5add62391490268042c685ad69f434c9ee77fcb07865071aa2c1cb"
 
   configEnv:
+    # No OIDC issuer in kind. An empty issuer flips the server's oidcEnabled off,
+    # which hides all SSO controls and makes the login screen ServiceAccount-token
+    # only (mint one with `make token`). Overrides the chart's example-issuer default.
+    OIDC_ISSUER_URL: ""
     PORTAL_URL: https://portal.127.0.0.1.nip.io
     TEKTON_RESULTS_URL: http://tekton-results-api-service.tekton-pipelines.svc:8080
     SONAR_HOST_URL: http://sonar.sonar:9000          # in-cluster API endpoint
-    SONAR_WEB_URL: http://sonar.127.0.0.1.nip.io     # public ingress for browser links
+    SONAR_WEB_URL: https://sonar.127.0.0.1.nip.io    # public ingress for browser links (https-only)
     PROMETHEUS_URL: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
 
   # The chart renders envFrom from extraEnvFrom only (no auto-mount of portal-config), so
@@ -145,6 +149,11 @@ krci-portal:
   ingress:
     enabled: true
     className: nginx
+    # The session cookie is Secure and PORTAL_URL is the https origin, so a session
+    # can never be established over plain http (login succeeds, cookie is dropped,
+    # the UI bounces back to session-expired). Force http -> https at the ingress.
+    annotations:
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     dnsWildcard: "127.0.0.1.nip.io"
     hosts:
       - host: portal.127.0.0.1.nip.io

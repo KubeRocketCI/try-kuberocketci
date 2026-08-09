@@ -300,7 +300,7 @@ sonar: ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres + sona
 	  --version $(SONAR_OPERATOR_VERSION) -n $(SONAR_NS) --wait --timeout 300s
 	$(KUBECTL) apply -f manifests/sonar-operator-crs.yaml
 	$(KUBECTL) -n $(SONAR_NS) get pods
-	@echo "SonarQube UI: http://sonar.$(WILDCARD)  (user admin; password via 'make status')"
+	@echo "SonarQube UI: https://sonar.$(WILDCARD)  (user admin; password via 'make status')"
 
 .PHONY: sonar-integrate
 sonar-integrate: ## (post-krci) Mint a token + create the ci-sonarqube secret in ns krci
@@ -329,17 +329,17 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@echo ""
 	@echo "================ Tool URLs & credentials (local only) ================"
 	@$(KUBECTL) -n $(ARGOCD_NS) get ingress argocd-server >/dev/null 2>&1 && { echo -n "  Argo CD UI:     http://argocd.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(ARGOCD_NS) get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
-	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && { echo -n "  SonarQube UI:   http://sonar.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
+	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && { echo -n "  SonarQube UI:   https://sonar.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "  GitLab UI:      https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "  Results API:    http://tekton-results.$(WILDCARD)" || true
 	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-grafana >/dev/null 2>&1 && { echo -n "  Grafana UI:     http://grafana.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(MONITORING_NS) get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo ")"; } || true
-	@$(KUBECTL) -n $(NS) get ingress krci-portal >/dev/null 2>&1 && echo "  Portal UI:      https://portal.$(WILDCARD)  (in-cluster; HTTPS/self-signed — login pending SA-token support)" || true
+	@$(KUBECTL) -n $(NS) get ingress krci-portal >/dev/null 2>&1 && echo "  Portal UI:      https://portal.$(WILDCARD)  (HTTPS/self-signed; sign in with the ServiceAccount token from 'make token')" || true
 	@echo ""
 	@echo "--- portal .env values ---"
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "    TEKTON_RESULTS_URL=http://tekton-results.$(WILDCARD)" || true
 	@$(KUBECTL) -n $(NS) get ingress gitfusion >/dev/null 2>&1 && echo "    GITFUSION_URL=http://gitfusion.$(WILDCARD)" || echo "    GITFUSION_URL=(gitfusion ingress not found — run make krci)"
 	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-kube-prometheus-prometheus >/dev/null 2>&1 && echo "    PROMETHEUS_URL=http://prometheus.$(WILDCARD)" || echo "    PROMETHEUS_URL=(prometheus ingress not found — run make prometheus)"
-	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && echo "    SONAR_HOST_URL=http://sonar.$(WILDCARD)" || echo "    SONAR_HOST_URL=(sonar ingress not found — run make sonar)"
+	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && echo "    SONAR_HOST_URL=https://sonar.$(WILDCARD)" || echo "    SONAR_HOST_URL=(sonar ingress not found — run make sonar)"
 	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && { echo -n "    SONAR_TOKEN="; $(KUBECTL) -n $(NS) get secret ci-sonarqube -o jsonpath='{.data.token}' | base64 -d; echo; } || echo "    SONAR_TOKEN=(ci-sonarqube secret not found — run make sonar-integrate)"
 
 # ---- self-hosted git --------------------------------------------------------

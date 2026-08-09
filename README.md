@@ -180,7 +180,7 @@ Portal serves `https://portal.127.0.0.1.nip.io`.
 | Component | URL                               | User    | Password            |
 |-----------|-----------------------------------|---------|---------------------|
 | GitLab    | <https://gitlab.127.0.0.1.nip.io> | `root`  | `KrciLocal_2026!`   |
-| SonarQube | <http://sonar.127.0.0.1.nip.io>   | `admin` | `KrciSonar_2026!`   |
+| SonarQube | <https://sonar.127.0.0.1.nip.io>   | `admin` | `KrciSonar_2026!`   |
 | Argo CD   | <http://argocd.127.0.0.1.nip.io>  | `admin` | *(chart-generated)* |
 | Grafana   | <http://grafana.127.0.0.1.nip.io> | `admin` | `prom-operator`     |
 
@@ -274,7 +274,7 @@ deliberate ways. Each is documented in full — with the rationale — in
 | Area           | Deviation                                                                                                                                 |
 |----------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | Install method | `helm`/`kubectl`, not Argo CD GitOps, so each component is debuggable in isolation (versions still pinned to edp-cluster-add-ons)         |
-| Portal         | in-cluster subchart; runs under Rosetta on Apple Silicon; OIDC login left unwired                                                         |
+| Portal         | in-cluster subchart; runs under Rosetta on Apple Silicon; OIDC disabled — ServiceAccount-token login only (`make token`)                  |
 | Tekton tasks   | `gitlab-set-status` and `deploy-applicationset-cli` patched for self-signed GitLab / plaintext Argo CD, re-applied after each `make krci` |
 | Argo CD        | single instance (not HA), chart `9.5.17`, plus an apps-in-any-namespace RBAC addition the chart omits                                     |
 | SonarQube      | own minimal Postgres instead of the bundled DB / Crunchy PGO                                                                              |
@@ -298,7 +298,7 @@ values/kube-prometheus-stack.yaml       # Prometheus + Grafana values
 values/argo-cd.yaml                     # Argo CD chart values (single instance)
 values/sonarqube.yaml                   # SonarQube chart values (community, external jdbc)
 values/gitlab-runner.yaml               # GitLab CI: GitLab Runner chart values (k8s executor, native arm64)
-manifests/krci-portal-secret.yaml       # Portal SERVER_SECRET/OIDC_CLIENT_SECRET (applied pre-krci)
+manifests/krci-portal-secret.yaml       # Portal SERVER_SECRET (applied pre-krci; OIDC disabled, token login only)
 manifests/argocd-appproject-krci.yaml   # Argo CD AppProject 'krci'
 manifests/argocd-appset-rbac.yaml       # cluster-scoped RBAC for the appset controller
 manifests/sonar-postgres.yaml           # minimal Postgres backing SonarQube
