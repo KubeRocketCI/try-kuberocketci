@@ -48,6 +48,11 @@ SONAR_REPO_URL     ?= https://SonarSource.github.io/helm-chart-sonarqube
 SONAR_CHART_VERSION ?= 2025.3.1
 SONAR_OPERATOR_VERSION ?= 3.3.0
 SONAR_NS           ?= sonar
+# The kind node's containerd cache dies with the cluster, so big images would be
+# re-downloaded on every rebuild. `preload` pulls them once into the HOST docker
+# cache (survives `make down`) and copies them into the node — rebuilds skip the
+# ~3GB GitLab download. Parsed from the manifest so the image pin lives in one place.
+PRELOAD_IMAGES     ?= $(shell awk '/image: gitlab\/gitlab-ce/{print $$2}' manifests/gitlab.yaml)
 # Predictable LOCAL-ONLY GitLab root password (seeded on first install). Override to taste.
 # NB: GitLab 17.x rejects passwords containing the app name ("gitlab") or the username
 # ("root") as "commonly used", so keep this clear of those words.
@@ -62,6 +67,34 @@ GITLAB_RUNNER_CHART_VERSION ?= 0.70.5
 ENVOY_GATEWAY_VERSION ?= v1.5.0
 ENVOY_GATEWAY_NS      ?= envoy-gateway-system
 VALUES             ?= values/edp-install.yaml
+# Snapshot mode (`SNAPSHOT=true make testbed`): install KRCI from the SNAPSHOT helm
+# repo instead of the release, each chart as its OWN release (the edp-install umbrella
+# keeps only the shared base — all subcharts disabled) — mirroring the per-chart
+# layout of edp-delivery-gitops/tekton/dev. From-scratch only: pick a mode per
+# cluster; `make down` first to switch. Latest snapshots by default (--devel); pin
+# one chart with SNAP_VERSION_<chart>=x.y.z-SNAPSHOT.n.
+SNAPSHOT             ?= false
+SNAP_HELM_REPO_NAME  ?= epamedp-snapshot
+SNAP_HELM_REPO_URL   ?= https://epam.github.io/edp-helm-charts/snapshot
+# Two ordered groups: the operators ship the CRDs (codebase-operator: GitServer,
+# QuickLink, Codebase…; cd-pipeline-operator: CDPipeline, Stage) that the umbrella
+# base (QuickLink CRs) and edp-tekton (GitServer CR) reference, so they install first.
+SNAPSHOT_CRD_CHARTS  ?= codebase-operator cd-pipeline-operator
+SNAPSHOT_CHARTS      ?= edp-tekton gitfusion krci-portal
+# SonarQube + sonar-operator are OUT OF SCOPE for snapshot mode: snapshot covers
+# edp-install and its subcomponents only. The stable repo coordinates are captured
+# BEFORE the override so the `sonar` target always installs sonar-operator from
+# stable at its pin, regardless of SNAPSHOT.
+STABLE_HELM_REPO_NAME := $(HELM_REPO_NAME)
+STABLE_HELM_REPO_URL  := $(HELM_REPO_URL)
+ifeq ($(SNAPSHOT),true)
+HELM_REPO_NAME := $(SNAP_HELM_REPO_NAME)
+HELM_REPO_URL  := $(SNAP_HELM_REPO_URL)
+VALUES         := values/snapshot/edp-install.yaml
+EDP_VERSION_FLAG := --devel
+else
+EDP_VERSION_FLAG := --version $(EDP_VERSION)
+endif
 KUBECTL            := kubectl --context $(CTX)
 
 # ---- meta -------------------------------------------------------------------
@@ -70,7 +103,8 @@ help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Quick start:  make preflight && make testbed && make token"
+	@echo "Quick start:    make preflight && make testbed && make token"
+	@echo "Snapshot mode:  SNAPSHOT=true make testbed   (from scratch only; one chart: make snapshot-<chart>, pin: SNAP_VERSION_<chart>=x.y.z-SNAPSHOT.n)"
 
 .PHONY: preflight
 preflight: ## Check docker RAM + required tools
@@ -170,22 +204,52 @@ repo: ## Add/update the KubeRocketCI helm repo
 	helm repo add $(HELM_REPO_NAME) $(HELM_REPO_URL) 2>/dev/null || true
 	helm repo update $(HELM_REPO_NAME)
 
+.PHONY: repo-snapshot
+repo-snapshot: ## Add/update the KubeRocketCI SNAPSHOT helm repo
+	helm repo add $(SNAP_HELM_REPO_NAME) $(SNAP_HELM_REPO_URL) 2>/dev/null || true
+	helm repo update $(SNAP_HELM_REPO_NAME)
+
+.PHONY: snapshot-versions
+snapshot-versions: repo-snapshot ## Show the latest SNAPSHOT chart versions
+	helm search repo $(SNAP_HELM_REPO_NAME) --devel
+
+# Install/upgrade ONE chart from the snapshot repo (e.g. `make snapshot-edp-tekton`).
+# Release name = chart name, so resource names match what the umbrella would render
+# and status/e2e/integrate targets work unchanged. Latest snapshot unless pinned
+# via SNAP_VERSION_<chart>.
+snapshot-%: repo-snapshot
+	helm upgrade --install $* $(SNAP_HELM_REPO_NAME)/$* \
+	  $(if $(SNAP_VERSION_$*),--version $(SNAP_VERSION_$*),--devel) \
+	  -n $(NS) --create-namespace \
+	  -f values/snapshot/global.yaml -f values/snapshot/$*.yaml \
+	  --force-conflicts --wait --timeout 900s
+
 .PHONY: krci-dry-run
 krci-dry-run: repo ## Render the chart (no install) to reveal required values
 	helm upgrade --install edp $(HELM_REPO_NAME)/edp-install \
-	  --version $(EDP_VERSION) -n $(NS) --create-namespace \
+	  $(EDP_VERSION_FLAG) -n $(NS) --create-namespace \
 	  -f $(VALUES) --dry-run --debug 2>&1 | tail -60
 
 .PHONY: krci
-krci: repo ## Install KubeRocketCI (edp-install $(EDP_VERSION)); renders GitServer/EL + in-cluster Portal (run gitlab-up first)
+krci: repo ## Install KubeRocketCI (edp-install $(EDP_VERSION), or SNAPSHOT=true for per-chart snapshots); renders GitServer/EL + in-cluster Portal (run gitlab-up first)
 	# Portal env secret must exist before the chart (envFrom on a missing Secret blocks the pod).
 	$(KUBECTL) create namespace $(NS) --dry-run=client -o yaml | $(KUBECTL) apply -f -
 	$(KUBECTL) -n $(NS) apply -f manifests/krci-portal-secret.yaml
+ifeq ($(SNAPSHOT),true)
+	# Snapshot mode: CRD-owning operators FIRST — the umbrella base below renders
+	# QuickLink CRs and edp-tekton a GitServer CR, which need these CRDs installed.
+	$(MAKE) $(addprefix snapshot-,$(SNAPSHOT_CRD_CHARTS))
+endif
 	# --force-conflicts: Helm 4 SSA vs the post-krci kubectl patches on gitlab-set-status /
 	# deploy-applicationset-cli; the *-integrate steps re-apply them. No-op on a clean install.
 	helm upgrade --install edp $(HELM_REPO_NAME)/edp-install \
-	  --version $(EDP_VERSION) -n $(NS) --create-namespace \
+	  $(EDP_VERSION_FLAG) -n $(NS) --create-namespace \
 	  -f $(VALUES) --force-conflicts --wait --timeout 900s
+ifeq ($(SNAPSHOT),true)
+	# …then the remaining component charts as their own releases, gitops-dev style
+	# (the umbrella rendered only the shared base — all subcharts off).
+	$(MAKE) $(addprefix snapshot-,$(SNAPSHOT_CHARTS))
+endif
 	$(KUBECTL) -n $(NS) get pods
 
 # ---- platform capabilities --------------------------------------------------
@@ -215,7 +279,7 @@ tekton-results: ## Install Tekton Results (v0.20.0, KRCI manifest) + minimal Pos
 	@echo "Tekton Results API: http://tekton-results.$(WILDCARD)  (set TEKTON_RESULTS_URL to this)"
 
 .PHONY: sonar
-sonar: repo ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres + sonar-operator + CRs
+sonar: ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres + sonar-operator + CRs (always stable, SNAPSHOT-independent)
 	# 1) our own minimal Postgres (fulfils the add-ons sonar-primary / sonar-pguser-sonar
 	# contract), then 2) SonarQube (external jdbc -> that Postgres), then 3) the KRCI
 	# sonar-operator + its CRs (Sonar/Group/PermissionTemplate/QualityGate/User).
@@ -230,7 +294,9 @@ sonar: repo ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres +
 	helm upgrade --install sonar $(SONAR_REPO_NAME)/sonarqube \
 	  --version $(SONAR_CHART_VERSION) -n $(SONAR_NS) --create-namespace \
 	  -f values/sonarqube.yaml --wait --timeout 900s
-	helm upgrade --install sonar-operator $(HELM_REPO_NAME)/sonar-operator \
+	helm repo add $(STABLE_HELM_REPO_NAME) $(STABLE_HELM_REPO_URL) 2>/dev/null || true
+	helm repo update $(STABLE_HELM_REPO_NAME)
+	helm upgrade --install sonar-operator $(STABLE_HELM_REPO_NAME)/sonar-operator \
 	  --version $(SONAR_OPERATOR_VERSION) -n $(SONAR_NS) --wait --timeout 300s
 	$(KUBECTL) apply -f manifests/sonar-operator-crs.yaml
 	$(KUBECTL) -n $(SONAR_NS) get pods
@@ -281,8 +347,19 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 # render the GitServer/EventListener from edp-tekton.gitServers and connect using
 # the ci-gitlab secret); gitlab-integrate runs AFTER krci (operator CA + task fix
 # + GitOps repo). `make testbed` chains them in the right order.
+.PHONY: preload
+preload: ## Load the GitLab image from the host docker cache into kind (skips the ~3GB pull)
+	@for img in $(PRELOAD_IMAGES); do \
+	  docker image inspect "$$img" >/dev/null 2>&1 || docker pull --platform linux/amd64 "$$img"; \
+	  if docker exec $(CLUSTER)-control-plane ctr -n k8s.io images ls -q 2>/dev/null | grep -qF "$$img"; then \
+	    echo "  $$img already in the kind node"; \
+	  else \
+	    kind load docker-image "$$img" --name $(CLUSTER); \
+	  fi; \
+	done
+
 .PHONY: gitlab-up
-gitlab-up: ## (pre-krci) Deploy GitLab + bootstrap creds/secrets + CoreDNS
+gitlab-up: preload ## (pre-krci) Deploy GitLab + bootstrap creds/secrets + CoreDNS
 	GITLAB_ROOT_PASSWORD='$(GITLAB_ROOT_PASSWORD)' bash scripts/gitlab-up.sh
 
 .PHONY: gitlab-integrate

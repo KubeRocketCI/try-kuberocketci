@@ -1,0 +1,6 @@
+# cd-pipeline-operator as a standalone snapshot release.
+
+# `own` copies `regcred` from ns krci into each Stage namespace so deployed
+# workloads can pull from the GitLab registry; the chart default (`none`) leaves
+# the app in ImagePullBackOff (403 on the anonymous registry token).
+secretManager: own

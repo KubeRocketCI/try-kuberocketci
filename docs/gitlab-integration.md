@@ -127,6 +127,6 @@ each `make krci` (see [architecture.md](architecture.md#the-tekton-task-patches-
 |---|---|
 | `manifests/gitlab.yaml` | Self-hosted GitLab CE (HTTPS, single pod, registry on `:5050`) |
 | `scripts/gitlab-up.sh` | Pre-KRCI: deploy GitLab + bootstrap creds/secrets + CoreDNS |
-| `scripts/gitlab-integrate.sh` | Post-KRCI: CA trust + task patch + GitOps repo |
+| `scripts/gitlab-integrate.sh` | Post-KRCI: SSH known-hosts pin (snapshot operator) + CA trust + task patch + GitOps repo |
 | `scripts/gitlab-set-status.py` | Corrected `gitlab-set-status` task script |
 | `values/edp-install.yaml` | `edp-tekton.gitServers.gitlab`, registry, kaniko CA |

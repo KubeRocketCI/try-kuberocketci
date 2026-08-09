@@ -218,6 +218,29 @@ make gitlab-ci        # set up: install the GitLab Runner + mirror the ci-java17
 make e2e-gitlabci     # MR -> review pipeline -> merge -> build pipeline; PASS = both green (GitLab CI, not Tekton)
 ```
 
+### Snapshot mode (`SNAPSHOT=true`)
+
+`SNAPSHOT=true make testbed` installs the KRCI charts from the **snapshot** helm repo
+(`https://epam.github.io/edp-helm-charts/snapshot`, semver pre-releases via `--devel`)
+instead of the pinned release. The umbrella `edp-install` then renders only the shared
+base (all subcharts disabled) and each component becomes its **own helm release** —
+CRD-owning operators first, then `edp-tekton`, `gitfusion`, `krci-portal` — mirroring
+the per-chart layout of the KRCI dev GitOps environments. Snapshot scope is
+`edp-install` and its subcomponents ONLY: SonarQube and `sonar-operator` always
+install from their stable pins regardless of the switch. Release names equal chart
+names, so every resource keeps the name the umbrella would give it and
+`status`/`*-integrate`/`e2e` work unchanged.
+
+- Per-chart values live in `values/snapshot/` (the umbrella sections of
+  `values/edp-install.yaml` flattened; `global.yaml` is passed to every release
+  because standalone charts don't inherit umbrella globals).
+- Pick a mode **per cluster** (from scratch only) — `make down` first to switch.
+- Re-roll one chart: `make snapshot-edp-tekton`; pin a version:
+  `SNAP_VERSION_edp-tekton=0.27.0-SNAPSHOT.30`; list versions: `make snapshot-versions`.
+- The portal image is digest-pinned to the amd64 variant in
+  `values/snapshot/krci-portal.yaml` (arm64 snapshot builds still crash on
+  better_sqlite3) — re-pin when bumping.
+
 ## End-to-end test (`make e2e`)
 
 `scripts/e2e.sh` drives the whole CI→CD lifecycle, fully automated (no UI), against
@@ -258,6 +281,8 @@ deliberate ways. Each is documented in full — with the rationale — in
 | Tekton Results | single stock `postgres:16-alpine` (no Crunchy PGO)                                                                                        |
 | GitLab         | self-hosted dependency on self-signed HTTPS; CoreDNS split-horizon + containerd registry mirror                                           |
 | Registry       | reuses GitLab's own Container Registry at `:5050` instead of a separate one                                                               |
+| Chart source   | optional `SNAPSHOT=true` mode installs pre-release charts, one release per chart (see [Snapshot mode](#snapshot-mode-snapshottrue))       |
+| Image cache    | `make preload` (auto in `gitlab-up`) keeps the ~3GB GitLab image in the host docker cache so rebuilds skip the download                   |
 
 For the how and why behind each row, see [docs/architecture.md](docs/architecture.md)
 and [docs/gitlab-integration.md](docs/gitlab-integration.md).
@@ -268,6 +293,7 @@ and [docs/gitlab-integration.md](docs/gitlab-integration.md).
 Makefile                                # all orchestration (versions pinned at top; make help)
 kind/cluster.yaml                       # single-node kind, ports 80/443 -> localhost, registry mirror
 values/edp-install.yaml                 # KubeRocketCI chart values (in-cluster portal on, amd64 image)
+values/snapshot/                        # SNAPSHOT mode: per-chart values (umbrella base + one file per release)
 values/kube-prometheus-stack.yaml       # Prometheus + Grafana values
 values/argo-cd.yaml                     # Argo CD chart values (single instance)
 values/sonarqube.yaml                   # SonarQube chart values (community, external jdbc)
@@ -287,7 +313,7 @@ manifests/sample-gitlabci-codebase.yaml # GitLab CI: ciTool=gitlab Codebase + br
 manifests/gitlab-ci-java-maven-configmap.yaml # GitLab CI: injected .gitlab-ci.yml template (mirrored component)
 scripts/e2e.sh                          # full e2e: MR -> review -> merge -> build -> deploy
 scripts/gitlab-up.sh                    # (pre-krci) deploy GitLab + creds/secrets + CoreDNS
-scripts/gitlab-integrate.sh             # (post-krci) CA trust + task patch + GitOps repo
+scripts/gitlab-integrate.sh             # (post-krci) SSH known-hosts pin + CA trust + task patch + GitOps repo
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script
 scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts + ci-argocd + deploy patch
 scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube secret

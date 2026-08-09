@@ -1,0 +1,34 @@
+# krci-portal as a standalone snapshot release — the `krci-portal:` section of
+# values/edp-install.yaml flattened to top level (keep the two in sync).
+
+image:
+  # The arm64 image variant crashes on better_sqlite3 ("unsupported relocation
+  # type 7") — pin the amd64 digest, which runs under Docker Desktop's Rosetta.
+  # name:tag@digest → digest wins. When bumping, re-pin with:
+  #   docker manifest inspect epamedp/krci-portal:<tag>   (take the amd64 digest)
+  tag: "0.8.0-SNAPSHOT.16@sha256:88a54fdfec23ab9101af884680103bb573ae650542a2f47215a750807db82b34"
+
+configEnv:
+  PORTAL_URL: https://portal.127.0.0.1.nip.io
+  TEKTON_RESULTS_URL: http://tekton-results-api-service.tekton-pipelines.svc:8080
+  SONAR_HOST_URL: http://sonar.sonar:9000          # in-cluster API endpoint
+  SONAR_WEB_URL: http://sonar.127.0.0.1.nip.io     # public ingress for browser links
+  PROMETHEUS_URL: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
+
+# configEnv reaches the pod via this configMapRef; secretRef adds the sensitive env
+# (manifests/krci-portal-secret.yaml, applied by `make krci` before the chart).
+extraEnvFrom:
+  - configMapRef:
+      name: portal-config
+  - secretRef:
+      name: krci-portal-secret
+
+ingress:
+  enabled: true
+  className: nginx
+  dnsWildcard: "127.0.0.1.nip.io"
+  hosts:
+    - host: portal.127.0.0.1.nip.io
+      paths:
+        - path: /
+          pathType: Prefix

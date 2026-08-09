@@ -86,6 +86,34 @@ GitLab comes up as a **platform dependency** before `make krci`, so the chart ca
 connect its GitServer on first reconcile. The three `*-integrate` steps run after
 the platform is up. `make testbed` chains the whole graph; `make e2e` validates it.
 
+### Snapshot mode (`SNAPSHOT=true`)
+
+The graph is identical in snapshot mode — only the `krci` node changes shape.
+`SNAPSHOT=true` repoints the helm repo variables at the **snapshot** repo
+(`…/edp-helm-charts/snapshot`, pre-releases via `--devel`), and `make krci`
+decomposes the umbrella into one release per chart, mirroring the per-chart layout
+of the KRCI dev GitOps environments. Snapshot scope is `edp-install` and its
+subcomponents only — SonarQube and `sonar-operator` always install from their
+stable pins, in either mode:
+
+1. **CRD owners first** — `codebase-operator` (GitServer/QuickLink/Codebase… CRDs)
+   and `cd-pipeline-operator` (CDPipeline/Stage), because the steps below apply CRs
+   of those kinds.
+2. **Umbrella base** — `edp-install` with *all subcharts disabled*
+   (`values/snapshot/edp-install.yaml`): just the shared config and QuickLink CRs.
+3. **Components** — `edp-tekton`, `gitfusion`, `krci-portal`, each with
+   `values/snapshot/global.yaml` (standalone charts don't inherit umbrella globals)
+   plus its own flattened values file.
+
+Release names equal chart names, so rendered resource names match the umbrella's
+and everything downstream (`*-integrate`, `status`, `e2e`) is mode-agnostic. Two
+standalone-chart defaults differ from the umbrella and are corrected in values:
+`cd-pipeline-operator.secretManager` (umbrella sets `own`; needed for the `regcred`
+copy into Stage namespaces) and the portal image (amd64 digest pin — the arm64
+snapshot build crashes on better_sqlite3). The snapshot `codebase-operator` (≥2.35)
+also enforces SSH host-key verification, handled dynamically in `gitlab-integrate`
+(see below). Modes are chosen **per cluster**: `make down` first to switch.
+
 ## Declarative GitServer
 
 The `GitServer`, its EventListener, and Ingress are rendered by the edp-tekton chart

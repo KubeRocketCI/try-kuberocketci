@@ -1,0 +1,40 @@
+# edp-tekton as a standalone snapshot release — the `edp-tekton:` section of
+# values/edp-install.yaml flattened to top level (keep the two in sync; full
+# rationale for each block lives there).
+
+# Tekton Reporter publishes MR report comments over the GitLab HTTPS API — it needs
+# the self-signed CA (cm `gitlab-ca`, created by scripts/gitlab-up.sh) or every
+# publish fails x509 "unknown authority".
+reporter:
+  extraVolumes:
+    - name: gitlab-ca
+      configMap:
+        name: gitlab-ca
+  extraVolumeMounts:
+    - name: gitlab-ca
+      mountPath: /etc/ssl/certs/gitlab-ca.crt
+      subPath: gitlab-ca.crt
+      readOnly: true
+
+# Registry uses a self-signed cert: mounts secret `custom-ca-certificates` into the
+# kaniko build task (created by scripts/gitlab-up.sh).
+kaniko:
+  customCert: true
+
+# DECLARATIVE GitServer: renders the GitServer CR + edp-gitlab EventListener + its
+# Ingress. References the `ci-gitlab` secret which scripts/gitlab-up.sh creates
+# BEFORE this chart installs.
+gitServers:
+  gitlab:
+    gitProvider: gitlab
+    host: gitlab.127.0.0.1.nip.io
+    gitUser: git
+    httpsPort: 443
+    sshPort: 32222
+    nameSshKeySecret: ci-gitlab
+    webhook:
+      skipWebhookSSLVerification: true
+    eventListener:
+      enabled: true
+      ingress:
+        enabled: true

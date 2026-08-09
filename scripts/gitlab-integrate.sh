@@ -19,6 +19,34 @@ GL_HOST="gitlab.${WILDCARD}"
 KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
+# The snapshot codebase-operator enforces SSH host key verification against its
+# ssh-known-hosts ConfigMap (chart: knownHosts.*; no way to disable). GitLab
+# generates host keys per install, so they cannot live in static values — pin them
+# here from the running GitLab. The CM is chart-owned (a helm upgrade resets it;
+# this step, like the other chart-owned patches below, re-applies) and the operator
+# picks up CM edits without a restart. No-op in release mode (no such ConfigMap).
+KH_CM="codebase-operator-ssh-known-hosts"
+if $KUBECTL -n "$NS" get cm "$KH_CM" >/dev/null 2>&1; then
+  echo "==> Pinning the GitLab SSH host keys ($GL_HOST, ports 22+32222) in cm $KH_CM"
+  # Both address forms: the GitServer connect check dials :32222 (bracket form) while
+  # git clone/push dials :22 (bare hostname form) — both go to the same gitlab svc.
+  KNOWN="$($KUBECTL -n gitlab exec deploy/gitlab -- sh -c 'cat /etc/gitlab/ssh_host_*.pub' \
+    | awk -v h="$GL_HOST" 'NF>=2 {print "["h"]:32222 "$1" "$2; print h" "$1" "$2}')"
+  CUR="$($KUBECTL -n "$NS" get cm "$KH_CM" -o jsonpath='{.data.ssh_known_hosts}')"
+  PATCH="$(CUR="$CUR" KNOWN="$KNOWN" HOST="$GL_HOST" python3 -c "
+import json, os
+cur, known, host = os.environ['CUR'], os.environ['KNOWN'], os.environ['HOST']
+kept = [l for l in cur.splitlines()
+        if not l.strip().startswith((host, '[' + host))]
+merged = '\n'.join(kept).rstrip() + '\n' + known + '\n'
+print(json.dumps({'data': {'ssh_known_hosts': merged}}) if merged != cur else '')")"
+  if [ -n "$PATCH" ]; then
+    $KUBECTL -n "$NS" patch cm "$KH_CM" -p "$PATCH"
+  else
+    echo "    already pinned"
+  fi
+fi
+
 echo "==> Waiting for the chart-rendered GitServer ($GS_NAME) to connect"
 for _ in $(seq 1 60); do
   conn="$($KUBECTL -n "$NS" get gitserver "$GS_NAME" -o jsonpath='{.status.connected}' 2>/dev/null || true)"

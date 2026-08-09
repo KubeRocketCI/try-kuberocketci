@@ -42,6 +42,9 @@ There is no app build/lint/unit-test step — this repo *orchestrates a cluster*
 - **Stand up:** `make preflight` (RAM/tool check) → `make testbed` (~18–20 min: deps
   first, KRCI installed **last**) → `make token` (24h Portal bearer token). `make up`
   brings up only the prerequisites (cluster → ingress → cert-manager → Tekton → Argo CD).
+  `SNAPSHOT=true make testbed` installs KRCI from the snapshot helm repo instead, one
+  release per chart (from scratch only — `make down` to switch modes; values in
+  `values/snapshot/`; re-roll one chart with `make snapshot-<chart>`).
 - **Rebuild one piece:** any capability target (`make sonar`, `make argocd`,
   `make prometheus`, `make gitlab-up`, …) re-runs in isolation without touching the rest.
 - **Inspect:** `make status` (cluster + tool URLs + Portal `.env` values) ·

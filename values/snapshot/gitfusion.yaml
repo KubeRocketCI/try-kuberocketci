@@ -1,0 +1,24 @@
+# gitfusion as a standalone snapshot release — the `gitfusion:` section of
+# values/edp-install.yaml flattened to top level (keep the two in sync).
+
+# Stable nip.io URL for off-cluster access (GITFUSION_URL in the Portal .env).
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: gitfusion.127.0.0.1.nip.io
+      paths:
+        - path: /
+          pathType: Prefix
+
+# Trust the GitLab self-signed CA (cm `gitlab-ca`, created by scripts/gitlab-up.sh)
+# or repository discovery fails x509 "unknown authority" (Portal shows no repos).
+volumes:
+  - name: gitlab-ca
+    configMap:
+      name: gitlab-ca
+volumeMounts:
+  - name: gitlab-ca
+    mountPath: /etc/ssl/certs/gitlab-ca.crt
+    subPath: gitlab-ca.crt
+    readOnly: true

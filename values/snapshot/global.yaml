@@ -1,0 +1,12 @@
+# Shared `global` block passed (via -f) to EVERY per-chart snapshot release —
+# standalone charts do not inherit the umbrella's globals. Keep in sync with the
+# global block in values/edp-install.yaml and values/snapshot/edp-install.yaml.
+global:
+  platform: "kubernetes"
+  dnsWildCard: "127.0.0.1.nip.io"
+  gitProviders:
+    - gitlab
+  dockerRegistry:
+    type: "harbor"
+    url: "gitlab.127.0.0.1.nip.io:5050"
+    space: "krci"

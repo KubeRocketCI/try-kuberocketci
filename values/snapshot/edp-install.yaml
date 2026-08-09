@@ -1,0 +1,39 @@
+# Umbrella base for snapshot mode (`SNAPSHOT=true make krci`): every subchart is
+# disabled — each component is its own release (SNAPSHOT_*_CHARTS in the Makefile),
+# so only the shared platform base (edp-config, RBAC, QuickLinks) renders here.
+# Per-chart customizations live in the sibling files; `global` is duplicated in
+# global.yaml because standalone releases do not inherit the umbrella's globals.
+
+codebase-operator:
+  enabled: false
+
+cd-pipeline-operator:
+  enabled: false
+
+gerrit-operator:
+  enabled: false
+
+edp-tekton:
+  enabled: false
+
+krci-portal:
+  enabled: false
+
+gitfusion:
+  enabled: false
+
+# Keep in sync with the global block in values/edp-install.yaml and global.yaml.
+global:
+  platform: "kubernetes"
+  dnsWildCard: "127.0.0.1.nip.io"
+  gitProviders:
+    - gitlab
+  dockerRegistry:
+    type: "harbor"
+    url: "gitlab.127.0.0.1.nip.io:5050"
+    space: "krci"
+
+# No External Secrets Operator locally (no AWS/SecretStore in a kind cluster).
+externalSecrets:
+  enabled: false
+  manageEDPInstallSecrets: false
