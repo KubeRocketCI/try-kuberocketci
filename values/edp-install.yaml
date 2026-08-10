@@ -1,9 +1,9 @@
 # KubeRocketCI (edp-install) values for LOCAL kind testing.
-# Chart: epamedp/edp-install 3.14.1  (verified against the chart's own values.yaml)
+# Chart: epamedp/edp-install 3.15.0  (verified against the chart's own values.yaml)
 #
 # Stack that comes up with these values:
 #   codebase-operator, cd-pipeline-operator, edp-tekton (pipelines library),
-#   gitfusion, krci-portal (in-cluster). Legacy edp-headlamp + gerrit stay off.
+#   gitfusion, krci-portal (in-cluster). Gerrit stays off.
 # Argo CD, a container registry, and GitLab are added in later phases.
 
 global:
@@ -34,11 +34,13 @@ edp-tekton:
   # GitLab HTTPS API, so it needs the self-signed CA like gitfusion does — without
   # it every publish fails x509 "unknown authority" and MRs get no report comment.
   # Same declarative mount of cm `gitlab-ca` (created by scripts/gitlab-up.sh) into
-  # /etc/ssl/certs, which Go scans on top of the system bundle. Failed-step log
-  # tails are always published by chart 0.26.0 (the off-by-default `logsReporting`
-  # switch ships in the next edp-tekton release; add `logsReporting: true` here
-  # when bumping EDP_VERSION past it to keep logs visible).
+  # /etc/ssl/certs, which Go scans on top of the system bundle.
   reporter:
+    # Publish the tail of failed steps in the MR report comment (and grant the
+    # reporter pods/log access). Off in the chart because pipeline output can carry
+    # secrets; on here because this is a throwaway local testbed and that log tail
+    # is the fastest way to see why a review pipeline failed.
+    logsReporting: true
     extraVolumes:
       - name: gitlab-ca
         configMap:
@@ -115,7 +117,7 @@ externalSecrets:
   enabled: false
   manageEDPInstallSecrets: false
 
-# In-cluster Portal (edp-install subchart krci-portal 0.6.0). OIDC is disabled
+# In-cluster Portal (edp-install subchart krci-portal 0.8.0). OIDC is disabled
 # (empty issuer below), so the login screen is ServiceAccount-token only — sign in
 # with the token from `make token`. configEnv overrides only the endpoints the chart
 # placeholders don't resolve to; the rest keep chart defaults via deep merge.
@@ -125,7 +127,7 @@ krci-portal:
   image:
     # amd64 image (arm64 variant has a better_sqlite3 bug); runs under Docker Desktop's
     # Rosetta, like gitlab-ce/sonar-operator. name:tag@digest → digest wins; re-pin on bump.
-    tag: "0.6.0@sha256:687e8ccb9b5add62391490268042c685ad69f434c9ee77fcb07865071aa2c1cb"
+    tag: "0.8.0@sha256:d605bf491f427ed7efaea5c16847317a1c1e744c5fb650c38918c5603d2f21bc"
 
   configEnv:
     # No OIDC issuer in kind. An empty issuer flips the server's oidcEnabled off,
