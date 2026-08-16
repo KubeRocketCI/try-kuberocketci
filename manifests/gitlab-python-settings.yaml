@@ -1,0 +1,24 @@
+# GitLab Package Registry paths for the edp-tekton `python` build task.
+#
+# Replaces the chart-stock custom-python-settings ConfigMap (which targets Sonatype
+# Nexus). The chart's own copy documents these GitLab paths in comments — the only thing
+# it cannot express is the per-project id, which the python task patch supplies as
+# CI_PROJECT_ID. Unlike the maven/npm tasks, the chart's python task HARDCODES the
+# ConfigMap name rather than reading tekton.configs.pythonConfigMap, so this name is
+# carried by our python task patch; setting that value only stops the stock copy from
+# rendering. scripts/gitlab-integrate.sh applies this unchanged.
+#
+# Schema: RESOLVE from the group endpoint, PUBLISH to the codebase's own project.
+# The group PyPI index also forwards misses to pypi.org (GitLab package forwarding, on by
+# default and available on CE), so one index URL covers internal AND public dependencies.
+# ${CI_PROJECT_ID} is literal here — the python task expands it at run time.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitlab-python-settings
+  namespace: krci
+data:
+  PIP_INDEX_PATH: "/api/v4/groups/krci/-/packages/pypi/simple"
+  PIP_INDEX_URL_PATH: "/api/v4/groups/krci/-/packages/pypi/simple"
+  REPOSITORY_SNAPSHOTS_PATH: "/api/v4/projects/${CI_PROJECT_ID}/packages/pypi"
+  REPOSITORY_RELEASES_PATH: "/api/v4/projects/${CI_PROJECT_ID}/packages/pypi"

@@ -21,6 +21,21 @@ reporter:
 kaniko:
   customCert: true
 
+# Package-registry settings ConfigMaps under our own names, so the chart stops rendering
+# and owning them (the stock ones target Nexus). See values/edp-install.yaml.
+tekton:
+  configs:
+    mavenConfigMap: "gitlab-maven-settings"
+    npmConfigMap: "gitlab-npm-settings"
+    pythonConfigMap: "gitlab-python-settings"
+
+# python3.13 is off in the chart and is the only python resource shipping LIBRARY
+# pipelines, so without it a python library codebase cannot build or publish.
+pipelines:
+  deployableResources:
+    python:
+      python3.13: true
+
 # DECLARATIVE GitServer: renders the GitServer CR + edp-gitlab EventListener + its
 # Ingress. References the `ci-gitlab` secret which scripts/gitlab-up.sh creates
 # BEFORE this chart installs.

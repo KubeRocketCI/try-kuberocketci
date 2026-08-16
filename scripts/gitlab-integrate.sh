@@ -6,8 +6,9 @@
 #      gitfusion gets the same CA declaratively via gitfusion.volumes in values),
 #   2. fix the upstream gitlab-set-status task (host parse + self-signed TLS),
 #   3. onboard the krci-gitops Codebase (no `codebases` values section),
-#   4. wire the GitLab Package Registry into the maven build (settings ConfigMap +
-#      maven task patch) — both chart-owned, so reset by Helm SSA and re-applied here.
+#   4. wire the GitLab Package Registry into the maven/python/npm/pnpm builds (settings
+#      ConfigMaps + task patches; the Tasks are chart-owned, so Helm SSA resets them and
+#      they are re-applied here). See docs/registry-integration.md.
 # The GitServer/EventListener/Ingress themselves come from edp-tekton.gitServers.
 set -euo pipefail
 
@@ -78,20 +79,40 @@ else
   echo "    (skip) gitlab-set-status task not found — run 'make krci' first"
 fi
 
-echo "==> Wiring the GitLab Package Registry into the maven build"
-# settings.xml -> GitLab (no Nexus mirror; Basic auth; group resolve; per-project
-# deploy) and the maven task patch (CA trust + CI_PROJECT_ID + wagon transport, none
-# expressible in settings.xml). Both are chart-owned, so Helm SSA resets them on every
-# `make krci` -> re-applied here with --force-conflicts. Needs secret ci-nexus (gitlab-up)
-# and cm gitlab-ca (gitlab-up). See docs/registry-integration.md.
-sed -e "s#__GL_HOST__#${GL_HOST}#g" -e "s#__GROUP__#${NS}#g" \
-  "$HERE/manifests/custom-maven-settings.yaml" | $KUBECTL apply --server-side --force-conflicts -f -
-if $KUBECTL -n "$NS" get task maven >/dev/null 2>&1; then
-  $KUBECTL apply --server-side --force-conflicts -f "$HERE/manifests/maven-task-gitlab.yaml" >/dev/null
-  echo "    maven task patched (trust-gitlab-ca + wagon); settings -> https://$GL_HOST group/$NS"
-else
-  echo "    (skip) maven task not found — run 'make krci' first"
-fi
+echo "==> Wiring the GitLab Package Registry into the build tasks"
+# One schema for every language: PUBLISH to the codebase's own GitLab project registry,
+# RESOLVE from the krci GROUP registry (a virtual aggregate over every project in the
+# group). Two layers per language, mirroring what maven has always done here:
+#   settings ConfigMap  — everything the ecosystem's own config language can express
+#                         (URLs, credentials). Named gitlab-*-settings and referenced from
+#                         values/edp-install.yaml (tekton.configs.*ConfigMap), so the chart
+#                         neither renders nor owns them: a plain apply, no re-apply needed.
+#   task patch          — only what that config language CANNOT express (per-build
+#                         CI_PROJECT_ID, TLS trust). Chart-owned -> Helm SSA resets these
+#                         on every `make krci`, hence --force-conflicts here.
+# Needs secret ci-nexus + cm gitlab-ca (both from gitlab-up). docs/registry-integration.md.
+for settings in maven npm python; do
+  $KUBECTL apply -f "$HERE/manifests/gitlab-${settings}-settings.yaml" >/dev/null
+done
+echo "    settings: gitlab-{maven,npm,python}-settings applied (chart-independent)"
+
+patch_task() {  # $1 = task name, $2 = what the patch buys it
+  if ! $KUBECTL -n "$NS" get task "$1" >/dev/null 2>&1; then
+    echo "    (skip) $1 task not found — run 'make krci' first"
+    return 0
+  fi
+  $KUBECTL apply --server-side --force-conflicts -f "$HERE/manifests/$1-task-gitlab.yaml" >/dev/null
+  echo "    $1: $2"
+}
+
+# edp-npm/edp-pnpm are the BUILD tasks: they only resolve (install) from the group
+# registry, so they need the CA — and pnpm additionally needs to be told to read the
+# .npmrc at all, which chart-stock never does.
+patch_task maven    "publish -> projects/<codebase>, resolve -> groups/$NS"
+patch_task python   "publish -> projects/<codebase>, resolve -> groups/$NS"
+patch_task npm      "publish -> projects/<codebase>, resolve -> groups/$NS"
+patch_task edp-npm  "resolve -> groups/$NS (build task: CA)"
+patch_task edp-pnpm "resolve -> groups/$NS (build task: userconfig + CA)"
 
 echo "==> Onboarding the KubeRocketCI GitOps repository ($NS/krci-gitops)"
 # The codebase-operator was just restarted (CA patch), so its Codebase validating

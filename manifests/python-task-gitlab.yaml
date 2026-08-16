@@ -1,0 +1,194 @@
+# Patched edp-tekton `python` Task for GitLab Package Registry builds.
+#
+# Deltas vs chart-stock — only what cm/gitlab-python-settings CANNOT express:
+#   - the ConfigMap NAME: upstream hardcodes custom-python-settings in the four
+#     configMapKeyRefs instead of honouring tekton.configs.pythonConfigMap, so the
+#     rename that keeps the ConfigMap out of Helm's ownership has to live here.
+#   - derive-project pre-step: CI_PROJECT_ID (url-encoded group%2Fname) from the repo's
+#     git remote, plus a merged CA bundle (system store + GitLab's self-signed CA).
+#   - python step: expands ${CI_PROJECT_ID} inside the ConfigMap paths (sed, not eval);
+#     points TWINE_CERT/PIP_CERT at the merged bundle. A bare CA happens to work on
+#     python:3.13-slim because pip 24.2+ also consults the OS truststore, but that is
+#     pip-version dependent; the merged bundle is not.
+#   - extra volumes: gitlab-ca (ConfigMap, from gitlab-up) + trust (emptyDir).
+# The behavioural deltas are no-ops on the Nexus default path: paths without
+# ${CI_PROJECT_ID} pass through the sed unchanged, and the CA is used only when the
+# ConfigMap is mounted. The Task itself IS chart-owned, so Helm SSA resets it on every
+# `make krci` -> scripts/gitlab-integrate.sh re-applies this with --force-conflicts.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: python
+  namespace: krci
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    meta.helm.sh/release-name: edp
+    meta.helm.sh/release-namespace: krci
+    tekton.dev/categories: Build Tools
+    tekton.dev/pipelines.minVersion: 0.17.0
+    tekton.dev/platforms: linux/amd64,linux/s390x,linux/ppc64le
+    tekton.dev/tags: build-tool
+spec:
+  description: >-
+    Runs python goals with GitLab Package Registry integration: pip resolves from the
+    krci group index (which forwards misses to pypi.org), twine publishes to the
+    codebase's own project registry using the deploy token from secret ci-nexus.
+  params:
+  - default: source
+    description: The path where package.json of the project is defined.
+    name: PATH_CONTEXT
+    type: string
+  - default: ""
+    description: Repository URL Twine uploads to.
+    name: TWINE_REPOSITORY_URL
+    type: string
+  - default: "1"
+    description: Do not interactively prompt for credentials if they are missing.
+    name: TWINE_NON_INTERACTIVE
+    type: string
+  - name: EXTRA_COMMANDS
+    type: string
+  - default: docker.io/python:3.13-slim
+    description: The python image you want to use.
+    name: BASE_IMAGE
+    type: string
+  - default: ci-nexus
+    description: name of the secret for the artifact-registry integration
+    name: ci-nexus
+    type: string
+  - default: $(workspaces.source.path)/cache/.cache/pip
+    description: Cache directory of the pip
+    name: PIP_CACHE_DIR
+    type: string
+  steps:
+  - name: derive-project
+    image: $(params.BASE_IMAGE)
+    computeResources: {}
+    script: |
+      #!/usr/bin/env sh
+      set -e
+      # Per-build GitLab project path (url-encoded group%2Fname) from the cloned repo's
+      # origin remote. GitLab accepts the encoded path as :id. Empty if not a git repo
+      # (e.g. review-only goals, which never publish).
+      cfg="$(workspaces.source.path)/$(params.PATH_CONTEXT)/.git/config"
+      url="$(awk '/\[remote "origin"\]/{f=1;next} f&&/^[[:space:]]*url[[:space:]]*=/{sub(/^[^=]*=[[:space:]]*/,"");print;exit}' "$cfg" 2>/dev/null || true)"
+      ns="$(printf '%s' "${url%.git}" | awk -F'[/:]' 'NF>=2{print $(NF-1)"/"$NF}')"
+      enc="$(printf '%s' "$ns" | sed 's#/#%2F#g')"
+      printf '%s' "$enc" > /trust/ci_project_id
+      echo "[TEKTON][INFO] CI_PROJECT_ID='$enc' (from origin '$url')"
+      # PIP_CERT/TWINE_CERT take a single bundle, so the GitLab CA is appended to the
+      # system store rather than replacing it — the group index redirects to pypi.org,
+      # which must still verify. Optional by design.
+      cp /etc/ssl/certs/ca-certificates.crt /trust/ca-bundle.crt
+      if [ -f /var/gitlab-ca/gitlab-ca.crt ]; then
+        cat /var/gitlab-ca/gitlab-ca.crt >> /trust/ca-bundle.crt
+        echo "[TEKTON][INFO] GitLab CA appended to the system trust bundle"
+      fi
+    volumeMounts:
+    - { name: gitlab-ca, mountPath: /var/gitlab-ca }
+    - { name: trust, mountPath: /trust }
+  - name: python
+    image: $(params.BASE_IMAGE)
+    computeResources:
+      limits:
+        cpu: "2"
+        memory: 3Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    env:
+    - name: HOME
+      value: $(workspaces.source.path)
+    - name: PIP_CACHE_DIR
+      value: $(params.PIP_CACHE_DIR)
+    - name: TWINE_REPOSITORY_URL
+      value: $(params.TWINE_REPOSITORY_URL)
+    - name: TWINE_NON_INTERACTIVE
+      value: $(params.TWINE_NON_INTERACTIVE)
+    - name: TWINE_USERNAME
+      valueFrom:
+        secretKeyRef:
+          key: username
+          name: $(params.ci-nexus)
+    - name: TWINE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: $(params.ci-nexus)
+    - name: NEXUS_HOST_URL
+      valueFrom:
+        secretKeyRef:
+          key: url
+          name: $(params.ci-nexus)
+    - name: PIP_INDEX_PATH
+      valueFrom:
+        configMapKeyRef:
+          name: gitlab-python-settings
+          key: PIP_INDEX_PATH
+          optional: true
+    - name: PIP_INDEX_URL_PATH
+      valueFrom:
+        configMapKeyRef:
+          name: gitlab-python-settings
+          key: PIP_INDEX_URL_PATH
+    - name: REPOSITORY_SNAPSHOTS_PATH
+      valueFrom:
+        configMapKeyRef:
+          name: gitlab-python-settings
+          key: REPOSITORY_SNAPSHOTS_PATH
+    - name: REPOSITORY_RELEASES_PATH
+      valueFrom:
+        configMapKeyRef:
+          name: gitlab-python-settings
+          key: REPOSITORY_RELEASES_PATH
+    script: |
+      #!/usr/bin/env sh
+      set -ex
+      export PATH=$PATH:$HOME/.local/bin
+
+      CI_PROJECT_ID="$(cat /trust/ci_project_id 2>/dev/null || true)"
+      # Expand ${CI_PROJECT_ID} inside the ConfigMap values. Shell does not re-expand a
+      # variable's contents, and eval would execute them; sed is neither. A no-op for
+      # paths that contain no ${CI_PROJECT_ID}, which keeps the Nexus default working.
+      expand() { printf '%s' "$1" | sed "s#\${CI_PROJECT_ID}#${CI_PROJECT_ID}#g"; }
+
+      export PIP_TRUSTED_HOST=$(echo "${NEXUS_HOST_URL}" | cut -d '/' -f 3 | cut -d ':' -f 1)
+      export PIP_INDEX="${NEXUS_HOST_URL}$(expand "${PIP_INDEX_PATH}")"
+      export PIP_INDEX_URL="${NEXUS_HOST_URL}$(expand "${PIP_INDEX_URL_PATH}")"
+      export REPOSITORY_URL_SNAPSHOTS="${NEXUS_HOST_URL}$(expand "${REPOSITORY_SNAPSHOTS_PATH}")"
+      export REPOSITORY_URL_RELEASES="${NEXUS_HOST_URL}$(expand "${REPOSITORY_RELEASES_PATH}")"
+
+      if [ -f /trust/ca-bundle.crt ]; then
+        export PIP_CERT=/trust/ca-bundle.crt
+        export TWINE_CERT=/trust/ca-bundle.crt
+        export REQUESTS_CA_BUNDLE=/trust/ca-bundle.crt
+      fi
+
+      echo "[TEKTON][INFO] PIP_INDEX_URL contains ${PIP_INDEX_URL}"
+      echo "[TEKTON][INFO] REPOSITORY_URL_SNAPSHOTS contains ${REPOSITORY_URL_SNAPSHOTS}"
+      echo "[TEKTON][INFO] REPOSITORY_URL_RELEASES contains ${REPOSITORY_URL_RELEASES}"
+
+      netcr_file="$HOME/.netrc"
+      if [ ! -f "${netcr_file}" ]; then
+        cat <<-EOF > "${netcr_file}"
+      machine ${PIP_TRUSTED_HOST}
+      login ${TWINE_USERNAME}
+      password ${TWINE_PASSWORD}
+      EOF
+      chmod 0600 "${netcr_file}"
+      fi
+
+      $(params.EXTRA_COMMANDS)
+    volumeMounts:
+    - { name: trust, mountPath: /trust }
+    workingDir: $(workspaces.source.path)/$(params.PATH_CONTEXT)
+  volumes:
+  - configMap:
+      name: gitlab-ca
+    name: gitlab-ca
+  - emptyDir: {}
+    name: trust
+  workspaces:
+  - name: source

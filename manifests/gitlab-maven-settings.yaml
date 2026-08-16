@@ -1,9 +1,10 @@
 # GitLab Package Registry settings.xml for the edp-tekton `maven` build task.
 #
-# Overrides the chart-stock custom-maven-settings ConfigMap (which targets Sonatype
+# Replaces the chart-stock custom-maven-settings ConfigMap (which targets Sonatype
 # Nexus at nexus.nexus:8081). KRCI here has no Nexus — build pipelines use GitLab's
-# Package Registry instead. scripts/gitlab-integrate.sh substitutes __GL_HOST__ and
-# __GROUP__ and applies this AFTER `make krci` (Helm SSA resets the chart copy).
+# Package Registry instead. values/edp-install.yaml points tekton.configs.mavenConfigMap
+# at this name, so the chart neither renders nor owns it and scripts/gitlab-integrate.sh
+# applies it once, unchanged.
 #
 # What changed vs stock (see docs/registry-integration.md):
 #   - no <mirrors>: GitLab CE can't proxy public registries, so Maven Central
@@ -16,7 +17,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: custom-maven-settings
+  name: gitlab-maven-settings
   namespace: krci
 data:
   settings.xml: |
@@ -61,14 +62,14 @@ data:
                 <repositories>
                     <repository>
                         <id>gitlab-maven</id>
-                        <url>https://__GL_HOST__/api/v4/groups/__GROUP__/-/packages/maven</url>
+                        <url>https://gitlab.127.0.0.1.nip.io/api/v4/groups/krci/-/packages/maven</url>
                         <releases><enabled>true</enabled></releases>
                         <snapshots><enabled>true</enabled></snapshots>
                     </repository>
                 </repositories>
                 <properties>
-                    <altReleaseDeploymentRepository>gitlab-maven::https://__GL_HOST__/api/v4/projects/${env.CI_PROJECT_ID}/packages/maven</altReleaseDeploymentRepository>
-                    <altSnapshotDeploymentRepository>gitlab-maven::https://__GL_HOST__/api/v4/projects/${env.CI_PROJECT_ID}/packages/maven</altSnapshotDeploymentRepository>
+                    <altReleaseDeploymentRepository>gitlab-maven::https://gitlab.127.0.0.1.nip.io/api/v4/projects/${env.CI_PROJECT_ID}/packages/maven</altReleaseDeploymentRepository>
+                    <altSnapshotDeploymentRepository>gitlab-maven::https://gitlab.127.0.0.1.nip.io/api/v4/projects/${env.CI_PROJECT_ID}/packages/maven</altSnapshotDeploymentRepository>
                 </properties>
             </profile>
         </profiles>

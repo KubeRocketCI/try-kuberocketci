@@ -130,7 +130,7 @@ spec:
     workingDir: $(workspaces.source.path)/$(params.CONTEXT_DIR)
   volumes:
   - configMap:
-      name: custom-maven-settings
+      name: gitlab-maven-settings
     name: settings-maven
   - configMap:
       name: gitlab-ca

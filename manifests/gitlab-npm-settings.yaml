@@ -1,0 +1,35 @@
+# GitLab Package Registry .npmrc files for the edp-tekton npm/pnpm tasks.
+#
+# Replaces the chart-stock custom-npm-settings ConfigMap (which targets Sonatype Nexus).
+# The chart's own copy documents these GitLab registries in comments; the only thing it
+# cannot express is the per-project id, supplied as CI_PROJECT_ID by the npm task patch.
+# values/edp-install.yaml points tekton.configs.npmConfigMap at this name, so the chart
+# neither renders nor owns it — the `npm`, `edp-npm` and `edp-pnpm` tasks all mount
+# whatever that value names. Both npm and pnpm expand ${VAR} from the environment when
+# they read .npmrc, so ${CI_PROJECT_ID} and ${CI_PASSWORD} are literal here.
+#
+# Schema: RESOLVE from the group registry (which forwards misses to registry.npmjs.org),
+# PUBLISH to the codebase's own project registry. Auth is _authToken with the krci-packages
+# deploy token — GitLab's documented form for both read and publish (Basic _auth also
+# authenticates reads, but _authToken avoids a read-works/publish-fails split).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitlab-npm-settings
+  namespace: krci
+# The _authToken key must be scoped to the EXACT registry path. npm looks the credential
+# up by the registry's "nerf dart" and a shorter prefix such as //host/api/v4/ is not
+# matched — `npm publish` fails with ENEEDAUTH even though the registry URL is right.
+data:
+  .npmrc-ci: |
+    registry=https://gitlab.127.0.0.1.nip.io/api/v4/groups/krci/-/packages/npm/
+    //gitlab.127.0.0.1.nip.io/api/v4/groups/krci/-/packages/npm/:_authToken=${CI_PASSWORD}
+    cache=${NPM_CACHE_DIR}
+  .npmrc-publish-snapshots: |
+    registry=https://gitlab.127.0.0.1.nip.io/api/v4/projects/${CI_PROJECT_ID}/packages/npm/
+    //gitlab.127.0.0.1.nip.io/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_PASSWORD}
+    cache=${NPM_CACHE_DIR}
+  .npmrc-publish-releases: |
+    registry=https://gitlab.127.0.0.1.nip.io/api/v4/projects/${CI_PROJECT_ID}/packages/npm/
+    //gitlab.127.0.0.1.nip.io/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_PASSWORD}
+    cache=${NPM_CACHE_DIR}
