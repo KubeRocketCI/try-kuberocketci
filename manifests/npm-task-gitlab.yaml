@@ -1,0 +1,128 @@
+# Patched edp-tekton `npm` Task for GitLab Package Registry builds.
+#
+# Deltas vs chart-stock — only what the .npmrc files CANNOT express:
+#   - derive-project pre-step: CI_PROJECT_ID (url-encoded group%2Fname) from the repo's
+#     git remote, so the publish .npmrc can name the codebase's own project registry.
+#   - npm step: exports CI_PROJECT_ID (npm expands ${CI_PROJECT_ID} when reading .npmrc)
+#     and NODE_EXTRA_CA_CERTS for GitLab's self-signed TLS. NODE_EXTRA_CA_CERTS is
+#     ADDITIVE to Node's bundled roots, so registry.npmjs.org still verifies — no merged
+#     bundle needed here, unlike python's PIP_CERT which replaces the store.
+#   - extra volumes: gitlab-ca (ConfigMap, from gitlab-up) + trust (emptyDir).
+#   - NPM_CACHE_DIR: an upstream omission this task copy fixes (see below).
+# All deltas are no-ops on the Nexus default path. scripts/gitlab-integrate.sh
+# re-applies this AFTER `make krci` with --force-conflicts.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: npm
+  namespace: krci
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    meta.helm.sh/release-name: edp
+    meta.helm.sh/release-namespace: krci
+    tekton.dev/categories: Build Tools
+    tekton.dev/pipelines.minVersion: 0.17.0
+    tekton.dev/platforms: linux/amd64,linux/s390x,linux/ppc64le
+    tekton.dev/tags: build-tool
+spec:
+  description: >-
+    Runs npm goals with GitLab Package Registry integration: npm resolves from the krci
+    group registry (which forwards misses to registry.npmjs.org), npm publish targets the
+    codebase's own project registry using the deploy token from secret ci-nexus.
+  params:
+  - default: .
+    description: The path where package.json of the project is defined.
+    name: PATH_CONTEXT
+    type: string
+  - name: EXTRA_COMMANDS
+    type: string
+  - default: docker.io/library/node:24.18.0-alpine3.24
+    description: The node image you want to use.
+    name: BASE_IMAGE
+    type: string
+  - default: ci-nexus
+    description: name of the secret for the artifact-registry integration
+    name: ci-nexus
+    type: string
+  - default: /workspace/source/cache
+    description: The path to the cache directory.
+    name: CACHE_DIR
+    type: string
+  steps:
+  - name: derive-project
+    image: $(params.BASE_IMAGE)
+    computeResources: {}
+    script: |
+      #!/usr/bin/env sh
+      set -e
+      # Per-build GitLab project path (url-encoded group%2Fname) from the cloned repo's
+      # origin remote. GitLab accepts the encoded path as :id. Empty if not a git repo
+      # (e.g. review-only goals, which never publish).
+      cfg="$(workspaces.source.path)/$(params.PATH_CONTEXT)/.git/config"
+      url="$(awk '/\[remote "origin"\]/{f=1;next} f&&/^[[:space:]]*url[[:space:]]*=/{sub(/^[^=]*=[[:space:]]*/,"");print;exit}' "$cfg" 2>/dev/null || true)"
+      ns="$(printf '%s' "${url%.git}" | awk -F'[/:]' 'NF>=2{print $(NF-1)"/"$NF}')"
+      enc="$(printf '%s' "$ns" | sed 's#/#%2F#g')"
+      printf '%s' "$enc" > /trust/ci_project_id
+      echo "[TEKTON][INFO] CI_PROJECT_ID='$enc' (from origin '$url')"
+    volumeMounts:
+    - { name: trust, mountPath: /trust }
+  - name: npm
+    image: $(params.BASE_IMAGE)
+    computeResources:
+      limits:
+        cpu: "2"
+        memory: 3Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    env:
+    - name: HOME
+      value: $(workspaces.source.path)
+    - name: CI_USERNAME
+      valueFrom:
+        secretKeyRef:
+          key: username
+          name: $(params.ci-nexus)
+    - name: CI_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: $(params.ci-nexus)
+    - name: NEXUS_HOST_URL
+      valueFrom:
+        secretKeyRef:
+          key: url
+          name: $(params.ci-nexus)
+    # Every .npmrc sets `cache=${NPM_CACHE_DIR}`, but chart-stock never exports it in
+    # THIS task (only in edp-npm), and npm leaves an undefined ${VAR} literal: the cache
+    # then resolves to a directory named '${NPM_CACHE_DIR}' created in the repo root
+    # right before `npm publish` packs it. Point it at the shared workspace cache.
+    - name: NPM_CACHE_DIR
+      value: $(params.CACHE_DIR)
+    script: |
+      #!/usr/bin/env sh
+      set -e
+
+      export CI_PROJECT_ID="$(cat /trust/ci_project_id 2>/dev/null || true)"
+      [ -f /var/gitlab-ca/gitlab-ca.crt ] && export NODE_EXTRA_CA_CERTS=/var/gitlab-ca/gitlab-ca.crt
+      echo "[TEKTON][INFO] CI_PROJECT_ID contains ${CI_PROJECT_ID}"
+
+      $(params.EXTRA_COMMANDS)
+    volumeMounts:
+    - { name: settings-npm, mountPath: /var/configmap }
+    - { name: gitlab-ca, mountPath: /var/gitlab-ca }
+    - { name: trust, mountPath: /trust }
+    workingDir: $(workspaces.source.path)/$(params.PATH_CONTEXT)
+  volumes:
+  - configMap:
+      name: gitlab-npm-settings
+    name: settings-npm
+  - configMap:
+      name: gitlab-ca
+    name: gitlab-ca
+  - emptyDir: {}
+    name: trust
+  workspaces:
+  - name: source

@@ -70,6 +70,12 @@ There is no app build/lint/unit-test step — this repo *orchestrates a cluster*
   (`secret/gitlab-tls`) is trusted in several places (operator mount, `gitfusion`, kaniko,
   buildkit `SSL_CERT_FILE`, runner certs). Split-horizon DNS (CoreDNS rewrites) makes
   `gitlab.127.0.0.1.nip.io` resolve to the in-cluster Service for pods.
+- **Packages: publish per project, resolve per group.** Every language publishes to its
+  own GitLab project registry and resolves from the `krci` group registry (there is no
+  Nexus here). Two layers: a `gitlab-*-settings` ConfigMap we own via
+  `tekton.configs.*ConfigMap`, plus a task patch for what that config language can't
+  express (`CI_PROJECT_ID`, TLS trust). See
+  [docs/registry-integration.md](docs/registry-integration.md).
 - **GitLab pack vs API.** Normal git (`git push`/clone) works under Rosetta. The GitLab
   **commits/tags API** (gitaly OperationService) is also available and is what the e2e
   scripts use to create branches/commits without a working tree.
@@ -80,7 +86,7 @@ There is no app build/lint/unit-test step — this repo *orchestrates a cluster*
   Registry). Codebase `ciTool: tekton`; webhook → EventListener → PipelineRun.
   (`e2e-java`'s registry/Maven tasks pass; its kaniko **image** build is a known
   arm64 base-image limitation — `manifests/sample-java-codebase.yaml`,
-  `custom-maven-settings.yaml`, `maven-task-gitlab.yaml`, `scripts/e2e-java.sh`.)
+  `gitlab-maven-settings.yaml`, `maven-task-gitlab.yaml`, `scripts/e2e-java.sh`.)
 - **GitLab CI** (`ciTool: gitlab`, multi-CI): `make gitlab-ci && make e2e-gitlabci`
   (`gitlab-ci` = install the runner + onboard the app). The operator skips the Tekton
   EventListener and injects a
@@ -111,7 +117,8 @@ If `@playwright/mcp` is configured, prefer the above approach for any multi-step
   - `values/*.yaml` — Helm values (`edp-install`, `argo-cd`, `kube-prometheus-stack`,
     `sonarqube`, `gitlab-runner`).
   - `kind/cluster.yaml` — the kind cluster config (host ports 80/443 → localhost).
-  - `docs/` — design docs (`architecture.md`, `gitlab-ci.md`, `gitlab-integration.md`).
+  - `docs/` — design docs (`architecture.md`, `gitlab-ci.md`, `gitlab-integration.md`,
+    `registry-integration.md`).
 
 - `kubectl` context is `kind-krci`; namespaces: `krci` (platform), `gitlab`,
   `gitlab-runner`, `sonar`, `argocd`, `monitoring`, `tekton-pipelines`.

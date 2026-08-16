@@ -3,7 +3,7 @@
 # Exercises the GitLab Package Registry integration end-to-end: the maven build
 # tasks resolve dependencies (Maven Central directly + the krci GROUP endpoint for
 # internal artifacts) and publish via `mvn deploy` to the per-project endpoint —
-# using secret ci-nexus + the GitLab-aware custom-maven-settings + the patched
+# using secret ci-nexus + the GitLab-aware gitlab-maven-settings + the patched
 # maven task (all wired by gitlab-up/gitlab-integrate).
 #
 # Like the Go sample, `create` scaffolds the project from a template

@@ -58,6 +58,30 @@ edp-tekton:
   kaniko:
     customCert: true
 
+  # Package-registry settings ConfigMaps: point the chart at OUR names instead of the
+  # stock custom-*-settings (which target Sonatype Nexus; this testbed has none). The
+  # cm-*-settings templates only render while the value still equals the stock name, so
+  # renaming stops the chart from rendering AND owning them — manifests/gitlab-*-settings
+  # .yaml are then plain applies in scripts/gitlab-integrate.sh, with no Helm SSA tug of
+  # war. The maven/npm tasks mount whatever these values name; the python task hardcodes
+  # its ConfigMap name upstream, so its patched copy carries the name instead and
+  # pythonConfigMap here only suppresses the stock object. See docs/registry-integration.md.
+  tekton:
+    configs:
+      mavenConfigMap: "gitlab-maven-settings"
+      npmConfigMap: "gitlab-npm-settings"
+      pythonConfigMap: "gitlab-python-settings"
+
+  # python3.13 is off in the chart, and it is the only python resource that ships LIBRARY
+  # pipelines (flask/fastapi are application-only) — so without this a python library
+  # codebase cannot build or publish at all. NB the values key is spelled python3.13 while
+  # the Codebase field must be `framework: python-3.13`, which is also the scaffold
+  # template name (epmd-edp/python-python-python-3.13).
+  pipelines:
+    deployableResources:
+      python:
+        python3.13: true
+
   # DECLARATIVE GitServer: the chart renders the GitServer CR + EventListener
   # (edp-gitlab) + its Ingress (event-listener-gitlab) from this map — replacing
   # the imperative `kubectl apply GitServer` + EL-readiness polling. It references

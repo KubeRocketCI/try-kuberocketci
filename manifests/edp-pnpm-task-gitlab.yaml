@@ -1,0 +1,128 @@
+# Patched edp-tekton `edp-pnpm` Task (the pnpm BUILD task) for GitLab-hosted dependencies.
+#
+# pnpm pipelines already PUBLISH correctly — their push step uses the `npm` task, which
+# is patched separately. This task is the RESOLVE half, and chart-stock never wired it up:
+# it mounts the npm settings ConfigMap at /var/configmap and then runs `pnpm i` without
+# ever pointing pnpm at it, so pnpm resolves from the public registry no matter what the
+# ConfigMap says (true for Nexus as well — an upstream bug, not a GitLab-only one).
+#
+# Deltas vs chart-stock — two rows in the init step:
+#   - npm_config_userconfig=/var/configmap/.npmrc-ci: pnpm honours npm's userconfig
+#     variable and expands ${CI_PASSWORD} from the environment, exactly like npm. Setting
+#     it AFTER `pnpm config set store-dir` is not required — that subcommand writes to
+#     pnpm's own global rc under $HOME, never to the read-only ConfigMap mount.
+#   - NODE_EXTRA_CA_CERTS + the gitlab-ca volume: the group registry is GitLab's
+#     self-signed endpoint, so without the CA `pnpm i` dies with
+#     DEPTH_ZERO_SELF_SIGNED_CERT. ADDITIVE to Node's bundled roots, so the registry's
+#     forwarding to registry.npmjs.org still verifies; a no-op when the CM is absent.
+# scripts/gitlab-integrate.sh re-applies this AFTER `make krci` with --force-conflicts.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: edp-pnpm
+  namespace: krci
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    meta.helm.sh/release-name: edp
+    meta.helm.sh/release-namespace: krci
+    tekton.dev/categories: Build Tools
+    tekton.dev/pipelines.minVersion: 0.17.0
+    tekton.dev/platforms: linux/amd64,linux/s390x,linux/ppc64le
+    tekton.dev/tags: build-tool
+spec:
+  description: >-
+    Runs pnpm build goals, resolving dependencies from the krci group registry over
+    GitLab's self-signed TLS.
+  params:
+  - default: source
+    description: The path where package.json of the project is defined.
+    name: PATH_CONTEXT
+    type: string
+  - default: docker.io/library/node:24.18.0-alpine3.24
+    description: The node image you want to use.
+    name: BASE_IMAGE
+    type: string
+  - default: ci-nexus
+    description: name of the secret for the artifact-registry integration
+    name: ci-nexus
+    type: string
+  - default: ci-sonarqube
+    description: name of the secret for the Sonarqube integration
+    name: ci-sonarqube
+    type: string
+  - default: /workspace/source/cache
+    description: The path to the cache directory.
+    name: CACHE_DIR
+    type: string
+  steps:
+  - name: init
+    image: $(params.BASE_IMAGE)
+    computeResources: {}
+    env:
+    - name: HOME
+      value: $(workspaces.source.path)/
+    - name: CI_USERNAME
+      valueFrom:
+        secretKeyRef:
+          key: username
+          name: $(params.ci-nexus)
+    - name: CI_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: $(params.ci-nexus)
+    - name: NEXUS_HOST_URL
+      valueFrom:
+        secretKeyRef:
+          key: url
+          name: $(params.ci-nexus)
+    - name: NPM_CACHE_DIR
+      value: $(params.CACHE_DIR)
+    script: |
+      #!/usr/bin/env sh
+      set -e
+
+      corepack enable
+      pnpm config set store-dir "$(params.CACHE_DIR)"
+      export npm_config_userconfig=/var/configmap/.npmrc-ci
+      [ -f /var/gitlab-ca/gitlab-ca.crt ] && export NODE_EXTRA_CA_CERTS=/var/gitlab-ca/gitlab-ca.crt
+      pnpm i
+    volumeMounts:
+    - mountPath: /var/configmap
+      name: settings-npm
+    - mountPath: /var/gitlab-ca
+      name: gitlab-ca
+    workingDir: $(workspaces.source.path)/$(params.PATH_CONTEXT)
+  - name: build
+    image: $(params.BASE_IMAGE)
+    computeResources: {}
+    script: |
+      corepack enable
+
+      pnpm run build
+    workingDir: $(workspaces.source.path)/$(params.PATH_CONTEXT)
+  - name: test
+    image: $(params.BASE_IMAGE)
+    computeResources:
+      limits:
+        cpu: "2"
+        memory: 3Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    script: |
+      corepack enable
+
+      pnpm run lint
+    workingDir: $(workspaces.source.path)/$(params.PATH_CONTEXT)
+  volumes:
+  - configMap:
+      name: gitlab-npm-settings
+    name: settings-npm
+  - configMap:
+      name: gitlab-ca
+    name: gitlab-ca
+  workspaces:
+  - name: source
