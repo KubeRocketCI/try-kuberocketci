@@ -6,7 +6,7 @@ image:
   # type 7") — pin the amd64 digest, which runs under Docker Desktop's Rosetta.
   # name:tag@digest → digest wins. When bumping, re-pin with:
   #   docker manifest inspect epamedp/krci-portal:<tag>   (take the amd64 digest)
-  tag: "0.8.0-SNAPSHOT.16@sha256:88a54fdfec23ab9101af884680103bb573ae650542a2f47215a750807db82b34"
+  tag: "0.9.0-SNAPSHOT.6@sha256:74ed4382602470bedfad75094b1c345d8243e062ba9d5061ab69ef975665bb58"
 
 configEnv:
   # No OIDC issuer in kind. An empty issuer flips the server's oidcEnabled off,

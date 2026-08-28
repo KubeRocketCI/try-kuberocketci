@@ -96,6 +96,7 @@ else
 EDP_VERSION_FLAG := --version $(EDP_VERSION)
 endif
 KUBECTL            := kubectl --context $(CTX)
+HELM               := helm --kube-context $(CTX)
 
 # ---- meta -------------------------------------------------------------------
 .PHONY: help
@@ -181,7 +182,7 @@ tekton: ## Install Tekton Pipelines + Triggers + interceptors
 argocd: ## Install Argo CD (chart $(ARGOCD_CHART_VERSION), single instance) + krci AppProject
 	helm repo add $(ARGOCD_REPO_NAME) $(ARGOCD_REPO_URL) 2>/dev/null || true
 	helm repo update $(ARGOCD_REPO_NAME)
-	helm upgrade --install argocd $(ARGOCD_REPO_NAME)/argo-cd \
+	$(HELM) upgrade --install argocd $(ARGOCD_REPO_NAME)/argo-cd \
 	  --version $(ARGOCD_CHART_VERSION) -n $(ARGOCD_NS) --create-namespace \
 	  -f values/argo-cd.yaml --wait --timeout 600s
 	# AppProject can't be expressed in chart values; apply it here (argocd ns, self-contained).
@@ -218,7 +219,7 @@ snapshot-versions: repo-snapshot ## Show the latest SNAPSHOT chart versions
 # and status/e2e/integrate targets work unchanged. Latest snapshot unless pinned
 # via SNAP_VERSION_<chart>.
 snapshot-%: repo-snapshot
-	helm upgrade --install $* $(SNAP_HELM_REPO_NAME)/$* \
+	$(HELM) upgrade --install $* $(SNAP_HELM_REPO_NAME)/$* \
 	  $(if $(SNAP_VERSION_$*),--version $(SNAP_VERSION_$*),--devel) \
 	  -n $(NS) --create-namespace \
 	  -f values/snapshot/global.yaml -f values/snapshot/$*.yaml \
@@ -226,7 +227,7 @@ snapshot-%: repo-snapshot
 
 .PHONY: krci-dry-run
 krci-dry-run: repo ## Render the chart (no install) to reveal required values
-	helm upgrade --install edp $(HELM_REPO_NAME)/edp-install \
+	$(HELM) upgrade --install edp $(HELM_REPO_NAME)/edp-install \
 	  $(EDP_VERSION_FLAG) -n $(NS) --create-namespace \
 	  -f $(VALUES) --dry-run --debug 2>&1 | tail -60
 
@@ -242,7 +243,7 @@ ifeq ($(SNAPSHOT),true)
 endif
 	# --force-conflicts: Helm 4 SSA vs the post-krci kubectl patches on gitlab-set-status /
 	# deploy-applicationset-cli; the *-integrate steps re-apply them. No-op on a clean install.
-	helm upgrade --install edp $(HELM_REPO_NAME)/edp-install \
+	$(HELM) upgrade --install edp $(HELM_REPO_NAME)/edp-install \
 	  $(EDP_VERSION_FLAG) -n $(NS) --create-namespace \
 	  -f $(VALUES) --force-conflicts --wait --timeout 900s
 ifeq ($(SNAPSHOT),true)
@@ -257,7 +258,7 @@ endif
 prometheus: ## Install kube-prometheus-stack ($(PROM_CHART_VERSION)) + Grafana
 	helm repo add $(PROM_REPO_NAME) $(PROM_REPO_URL) 2>/dev/null || true
 	helm repo update $(PROM_REPO_NAME)
-	helm upgrade --install prometheus $(PROM_REPO_NAME)/kube-prometheus-stack \
+	$(HELM) upgrade --install prometheus $(PROM_REPO_NAME)/kube-prometheus-stack \
 	  --version $(PROM_CHART_VERSION) -n $(MONITORING_NS) --create-namespace \
 	  -f values/kube-prometheus-stack.yaml --wait --timeout 600s
 	$(KUBECTL) -n $(MONITORING_NS) get pods
@@ -291,12 +292,12 @@ sonar: ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres + sona
 	$(KUBECTL) apply -f manifests/sonar-admin-secret.yaml
 	helm repo add $(SONAR_REPO_NAME) $(SONAR_REPO_URL) 2>/dev/null || true
 	helm repo update $(SONAR_REPO_NAME)
-	helm upgrade --install sonar $(SONAR_REPO_NAME)/sonarqube \
+	$(HELM) upgrade --install sonar $(SONAR_REPO_NAME)/sonarqube \
 	  --version $(SONAR_CHART_VERSION) -n $(SONAR_NS) --create-namespace \
 	  -f values/sonarqube.yaml --wait --timeout 900s
 	helm repo add $(STABLE_HELM_REPO_NAME) $(STABLE_HELM_REPO_URL) 2>/dev/null || true
 	helm repo update $(STABLE_HELM_REPO_NAME)
-	helm upgrade --install sonar-operator $(STABLE_HELM_REPO_NAME)/sonar-operator \
+	$(HELM) upgrade --install sonar-operator $(STABLE_HELM_REPO_NAME)/sonar-operator \
 	  --version $(SONAR_OPERATOR_VERSION) -n $(SONAR_NS) --wait --timeout 300s
 	$(KUBECTL) apply -f manifests/sonar-operator-crs.yaml
 	$(KUBECTL) -n $(SONAR_NS) get pods
@@ -408,7 +409,7 @@ gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 # Opt-in (not part of `make up`/`testbed`); idempotent.
 .PHONY: envoy
 envoy: ## Install Envoy Gateway (Gateway API + Envoy CRDs + controller + 'eg' GatewayClass) + proxy metrics PodMonitor
-	helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
+	$(HELM) upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
 	  --version $(ENVOY_GATEWAY_VERSION) -n $(ENVOY_GATEWAY_NS) --create-namespace \
 	  --wait --timeout 300s
 	$(KUBECTL) -n $(ENVOY_GATEWAY_NS) rollout status deploy/envoy-gateway --timeout=300s

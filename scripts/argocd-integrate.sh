@@ -18,6 +18,7 @@ GL_HOST="gitlab.${WILDCARD}"
 SSH_PORT="${SSH_PORT:-32222}"
 ARGOCD_HOST="argocd.${WILDCARD}"
 KUBECTL="kubectl --context $CTX"
+HELM="helm --kube-context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ARGOCD_REPO_NAME="${ARGOCD_REPO_NAME:-argo}"
 ARGOCD_REPO_URL="${ARGOCD_REPO_URL:-https://argoproj.github.io/argo-helm}"
@@ -59,7 +60,7 @@ $KUBECTL -n "$GL_NS" exec "$POD" -- sh -c '
   [ -n "$type" ] && echo "[${GL_HOST}]:${SSH_PORT} ${type} ${key}"
 done > "$EXTRA_HOSTS_FILE"
 helm repo add "$ARGOCD_REPO_NAME" "$ARGOCD_REPO_URL" 2>/dev/null || true
-helm upgrade --install argocd "$ARGOCD_REPO_NAME"/argo-cd --version "$ARGOCD_CHART_VERSION" \
+$HELM upgrade --install argocd "$ARGOCD_REPO_NAME"/argo-cd --version "$ARGOCD_CHART_VERSION" \
   -n "$ARGOCD_NS" -f "$HERE/values/argo-cd.yaml" \
   --set-file "configs.ssh.extraHosts=$EXTRA_HOSTS_FILE" --wait --timeout 300s
 rm -f "$EXTRA_HOSTS_FILE"

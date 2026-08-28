@@ -25,6 +25,7 @@ WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 GL_HOST="gitlab.${WILDCARD}"
 CHART_VERSION="${GITLAB_RUNNER_CHART_VERSION:-0.70.5}"
 KUBECTL="kubectl --context $CTX"
+HELM="helm --kube-context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 GLPOD="$($KUBECTL -n $GL_NS get pod -l app=gitlab -o jsonpath='{.items[0].metadata.name}')"
@@ -65,7 +66,7 @@ echo "    runner token: ${RUNNER_TOKEN:0:8}…"
 echo "==> Installing gitlab/gitlab-runner (chart $CHART_VERSION)"
 helm repo add gitlab https://charts.gitlab.io >/dev/null 2>&1 || true
 helm repo update gitlab >/dev/null 2>&1
-helm upgrade --install gitlab-runner gitlab/gitlab-runner \
+$HELM upgrade --install gitlab-runner gitlab/gitlab-runner \
   --version "$CHART_VERSION" -n "$RUNNER_NS" \
   -f "$HERE/values/gitlab-runner.yaml" \
   --set runnerToken="$RUNNER_TOKEN" \
