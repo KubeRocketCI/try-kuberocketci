@@ -256,9 +256,8 @@ each have a dedicated section above; this is the roundup:
   `make krci`, so the install uses `--force-conflicts` and the integrate steps
   re-apply. See [the task patches](#the-tekton-task-patches-and-the-helm-ssa-race).
 - **Argo CD single instance** (one replica each, single Redis, dex/notifications
-  off) instead of KRCI's documented HA install. Uses the latest chart (`9.5.17`;
-  add-ons pins `9.5.13`) and adds an apps-in-any-namespace ApplicationSet RBAC
-  grant (`manifests/argocd-appset-rbac.yaml`) the chart omits.
+  off) instead of KRCI's documented HA install, plus an apps-in-any-namespace
+  ApplicationSet RBAC grant (`manifests/argocd-appset-rbac.yaml`) the chart omits.
 - **SonarQube** — an own minimal Postgres (`postgresql.enabled: false` +
   `jdbcOverwrite`) instead of the chart's bundled DB or Crunchy PGO. The chart
   needs `monitoringPasscode` to become Ready, and its `setAdminPassword` hook

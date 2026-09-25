@@ -14,12 +14,11 @@
 #
 # Exit 0 = PASS (review + build + deploy all green, app deployed), non-zero = FAIL.
 #
-# Note on duplicates: GitLab can deliver the merge_request webhook twice (open, then
-# an update as it recomputes merge status); both match the gitlab-review trigger, so
-# two review runs can appear. They post the same commit-status context, so the second
-# fails fast at report-pipeline-start-to-gitlab (HTTP 400). That is the expected
-# "duplicate" run; the other is the real "fully green" run. The merge action fires the
-# build trigger once.
+# Duplicate review runs: GitLab can deliver the merge_request webhook twice (open, then
+# an update as it recomputes merge status); both match the gitlab-review trigger. Both
+# post the same commit-status context, so the second run fails fast at
+# report-pipeline-start-to-gitlab (HTTP 400): classified DUP_REPORT_FAIL below. The
+# merge action fires the build trigger once.
 set -euo pipefail
 
 CTX="${CTX:-kind-krci}"
@@ -39,8 +38,8 @@ say()  { echo "==> $*"; }
 info() { echo "    $*"; }
 fail() { echo "E2E RESULT: FAIL — $*"; exit 1; }
 
-# Run a GitLab REST call from inside the gitlab pod (the only place the self-signed
-# https://localhost API is reachable). Usage: gl_api METHOD PATH [JSON_BODY]
+# GitLab REST call from inside the gitlab pod (self-signed https://localhost).
+# Usage: gl_api METHOD PATH [JSON_BODY]
 gl_api() {
   local method="$1" path="$2" body="${3:-}"
   if [ -n "$body" ]; then
@@ -151,10 +150,9 @@ done
 
 # ---------------------------------------------------------------------------
 # Phase 2 — create the demo CDPipeline + dev Stage (Auto) up front.
-# The cdpipeline validating webhook requires inputDockerStreams to exist, so wait
-# for the (initially empty) CodebaseImageStream the CodebaseBranch creates. The
-# Stage must exist BEFORE the build: triggerType Auto deploys on the CBIS *update*,
-# so the build updating the stream is what later fires the deploy.
+# The cdpipeline validating webhook requires inputDockerStreams to exist: wait for the
+# (initially empty) CodebaseImageStream the CodebaseBranch creates. The Stage must
+# exist before the build: triggerType Auto deploys on the CBIS update.
 # ---------------------------------------------------------------------------
 say "Waiting for the CodebaseImageStream $CB_BRANCH to exist"
 for _ in $(seq 1 36); do
@@ -174,8 +172,8 @@ for _ in $(seq 1 36); do
 done
 $KUBECTL get ns "$DEPLOY_NS" >/dev/null 2>&1 || fail "Stage did not create the deploy namespace $DEPLOY_NS"
 
-# Snapshot deploy runs now: the build hasn't run yet, so any deploy run we see after
-# the build is the one the Auto trigger created for the freshly built image.
+# Deploy-run snapshot taken before the build: any deploy run appearing after it is the
+# Auto-trigger run for the new image.
 before_deploy="$(runs_for "app.edp.epam.com/pipelinetype=deploy,app.edp.epam.com/cdpipeline=$CDPIPELINE")"
 
 # ---------------------------------------------------------------------------

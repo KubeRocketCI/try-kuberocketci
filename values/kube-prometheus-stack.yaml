@@ -1,7 +1,6 @@
-# kube-prometheus-stack values for local kind.
-# Chart: prometheus-community/kube-prometheus-stack v84.5.0 (appVersion v0.90.1)
-# Mirrors edp-cluster-add-ons/clusters/core/addons/prometheus-operator/values.yaml
-# (there nested under the `prometheus-operator` alias; root-level here).
+# kube-prometheus-stack values for local kind (version: Makefile PROM_CHART_VERSION).
+# Keys match edp-cluster-add-ons/clusters/core/addons/prometheus-operator/values.yaml, which
+# nests them under the `prometheus-operator` alias; root-level here.
 
 crds:
   enabled: true
@@ -20,22 +19,20 @@ prometheus:
       - /
     pathType: Prefix
   prometheusSpec:
-    # Pick up ALL ServiceMonitors/PodMonitors, not just Helm-labelled ones — so
-    # Tekton Results' ServiceMonitor and any KRCI component metrics are scraped.
+    # Scrape all ServiceMonitors/PodMonitors, not only Helm-labelled ones (Tekton Results,
+    # KRCI components).
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
-    # Small footprint for a laptop kind cluster; ephemeral (no PVC).
+    # Ephemeral: no PVC.
     retention: 7d
     resources: {}
 
 grafana:
   enabled: true
-  # Local-only default admin password (matches the add-ons repo default).
+  # Local-only admin password.
   adminPassword: prom-operator
-  # Expose Grafana at a stable nip.io URL (same pattern as the Prometheus ingress
-  # above) so it's reachable without a port-forward. Plain HTTP, no TLS (local only).
-  # NB: the grafana subchart uses a single `path:` string (not `paths:` like the
-  # prometheus block). Served at root on a dedicated host, so no serve_from_sub_path.
+  # Stable nip.io URL, plain HTTP. The grafana subchart takes a single `path:` (the
+  # prometheus block takes `paths:`). Served at root on its own host: no serve_from_sub_path.
   ingress:
     enabled: true
     ingressClassName: nginx
@@ -44,17 +41,14 @@ grafana:
     path: /
     pathType: Prefix
 
-# Keep the footprint small on kind — no Alertmanager.
 alertmanager:
   enabled: false
 
-# kube-state-metrics (bundled subchart). Expose the app.kubernetes.io/instance pod
-# label as a `kube_pod_labels{label_app_kubernetes_io_instance="…"}` series. The Portal
-# Monitoring tab (getDeploymentMetrics) joins container metrics to codebases on this
-# label via `kube_pod_labels`; KSM omits all label_* series unless allow-listed, so
-# without this the tab silently degrades to live-pods-only (no historical pods) and the
-# server logs `hasKubePodLabels=false`. Passed via extraArgs to mirror edp-cluster-add-ons
-# (clusters/core/addons/prometheus-operator/values.yaml — there under the kube-prometheus-stack alias).
+# kube-state-metrics: emit the app.kubernetes.io/instance pod label as
+# `kube_pod_labels{label_app_kubernetes_io_instance="…"}`. The Portal Monitoring tab
+# (getDeploymentMetrics) joins container metrics to codebases on it; KSM omits label_*
+# series unless allow-listed, and the tab then degrades to live pods only (server logs
+# `hasKubePodLabels=false`).
 kube-state-metrics:
   extraArgs:
     - --metric-labels-allowlist=pods=[app.kubernetes.io/instance]

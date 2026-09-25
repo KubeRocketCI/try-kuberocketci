@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Phase: post-KRCI Argo CD integration. Runs AFTER `make krci` + GitLab (needs the
-# `ci-gitlab` secret, the `krci` namespace, a running Argo CD, and GitLab reachable).
-# Pairs with the baseline `make argocd` (helm install + krci AppProject). Only the
-# bits that couple Argo CD to GitLab + KRCI, which can't live in the chart values:
-#   1. register the GitLab repo SSH credentials (repo-creds) in ns argocd,
-#   2. add the GitLab host key to argocd-ssh-known-hosts-cm,
-#   3. mint a krci-ci API token and store it as the `ci-argocd` integration secret (ns krci).
+# Post-KRCI Argo CD integration. Requires `make krci` and `make gitlab-up` done first:
+# secret ci-gitlab, namespace krci, Argo CD running, GitLab reachable.
+# Baseline install is `make argocd` (helm + krci AppProject). This script adds what the
+# chart values cannot express:
+#   1. GitLab repo SSH credentials (repo-creds) in ns argocd,
+#   2. the GitLab host key in argocd-ssh-known-hosts-cm,
+#   3. a krci-ci API token stored as the `ci-argocd` integration secret (ns krci).
 # Docs: https://docs.kuberocketci.io/docs/operator-guide/cd/argocd-integration
 set -euo pipefail
 
@@ -22,15 +22,16 @@ HELM="helm --kube-context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ARGOCD_REPO_NAME="${ARGOCD_REPO_NAME:-argo}"
 ARGOCD_REPO_URL="${ARGOCD_REPO_URL:-https://argoproj.github.io/argo-helm}"
-ARGOCD_CHART_VERSION="${ARGOCD_CHART_VERSION:-9.5.17}"
+# Default: the Makefile pin. `make argocd-integrate` passes it explicitly.
+ARGOCD_CHART_VERSION="${ARGOCD_CHART_VERSION:-$(sed -n 's/^ARGOCD_CHART_VERSION *?= *//p' "$HERE/Makefile")}"
 
 echo "==> Waiting for Argo CD server to be ready"
 $KUBECTL -n "$ARGOCD_NS" rollout status deploy/argocd-server --timeout=300s
 
 # 1) ---------------------------------------------------------------------------
 echo "==> Registering GitLab repo credentials (repo-creds) in ns/$ARGOCD_NS"
-# Reuse the SSH key codebase-operator already clones with (ci-gitlab.id_rsa). Argo CD
-# matches these creds by URL prefix to any repo under the GitLab host over SSH.
+# Same SSH key the codebase-operator clones with (ci-gitlab.id_rsa). Argo CD matches
+# repo-creds by URL prefix: every repo under the GitLab host over SSH.
 KEY="$($KUBECTL -n "$NS" get secret ci-gitlab -o jsonpath='{.data.id_rsa}' | base64 -d)"
 if [ -z "$KEY" ]; then echo "!! ci-gitlab/id_rsa not found — run 'make gitlab-up' first" >&2; exit 1; fi
 $KUBECTL -n "$ARGOCD_NS" create secret generic gitlab-creds \
@@ -43,13 +44,11 @@ $KUBECTL -n "$ARGOCD_NS" label --overwrite secret gitlab-creds \
 
 # 2) ---------------------------------------------------------------------------
 echo "==> Adding the GitLab host key to Argo CD (configs.ssh.extraHosts, via helm)"
-# Argo CD's repo-server verifies the SSH host key, so it must know GitLab's. We inject it
-# through HELM (configs.ssh.extraHosts) rather than patching argocd-ssh-known-hosts-cm
-# directly: the chart server-side-applies that cm and OWNS .data.ssh_known_hosts, so any
-# other field manager (kubectl apply/patch) makes the next `make argocd` upgrade fail with
-# a field-ownership conflict. Going through helm keeps it the sole owner — idempotent.
-# (The host key is the same however you reach the daemon — read it from the pod and label
-# it for the address Argo CD dials: [gitlab.<wildcard>]:32222.)
+# The repo-server verifies the SSH host key. Injected via helm (configs.ssh.extraHosts):
+# the chart server-side-applies argocd-ssh-known-hosts-cm and owns .data.ssh_known_hosts;
+# any other field manager (kubectl apply/patch) makes the next `make argocd` upgrade fail
+# with a field-ownership conflict. Key read from the GitLab pod, labelled for the address
+# Argo CD dials: [gitlab.<wildcard>]:32222.
 POD="$($KUBECTL -n "$GL_NS" get pods -l app=gitlab -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 [ -z "$POD" ] && POD="$($KUBECTL -n "$GL_NS" get pods -o jsonpath='{.items[0].metadata.name}')"
 EXTRA_HOSTS_FILE="$(mktemp)"
@@ -67,10 +66,10 @@ rm -f "$EXTRA_HOSTS_FILE"
 
 # 3) ---------------------------------------------------------------------------
 echo "==> Patching the deploy-applicationset-cli task for a plaintext Argo CD server"
-# Argo CD serves plain HTTP (server.insecure=true, matching edp-cluster-add-ons), but the
-# stock deploy task's argocd CLI defaults to TLS (ARGOCD_OPTS lacks --plaintext) -> it hits
-# https://argocd-server.argocd.svc:80 and gets "connection reset". Add --plaintext. Survives
-# `make krci` (helm 3-way merge leaves chart-unchanged fields), like the gitlab-set-status fix.
+# Argo CD serves plain HTTP (server.insecure=true). The stock task's argocd CLI defaults
+# to TLS (ARGOCD_OPTS lacks --plaintext): https://argocd-server.argocd.svc:80 ->
+# "connection reset". The patch adds --plaintext. `make krci` keeps it (helm 3-way merge
+# leaves chart-unchanged fields); same mechanism as the gitlab-set-status fix.
 if $KUBECTL -n "$NS" get task deploy-applicationset-cli >/dev/null 2>&1; then
   P="$($KUBECTL -n "$NS" get task deploy-applicationset-cli -o json | python3 -c "
 import json,sys
@@ -86,9 +85,9 @@ else
 fi
 
 echo "==> Minting a krci-ci API token and creating the ci-argocd integration secret (ns/$NS)"
-# Log in as admin over the ingress, then generate a non-expiring token for the
-# krci-ci account (declared apiKey in values/argo-cd.yaml). KRCI's deploy task + Portal
-# read ci-argocd (labelled integration-secret) to talk to the Argo CD API in-cluster.
+# Admin login over the ingress, then a non-expiring token for the krci-ci account
+# (accounts.krci-ci: apiKey in values/argo-cd.yaml). KRCI's deploy task and the Portal
+# read ci-argocd (label integration-secret) to reach the Argo CD API in-cluster.
 ADMIN_PW="$($KUBECTL -n "$ARGOCD_NS" get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
 API="http://${ARGOCD_HOST}"
 for _ in $(seq 1 30); do

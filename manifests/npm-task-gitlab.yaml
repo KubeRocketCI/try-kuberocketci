@@ -1,16 +1,16 @@
-# Patched edp-tekton `npm` Task for GitLab Package Registry builds.
+# Patched edp-tekton `npm` Task for GitLab Package Registry builds (local deviation;
+# only what .npmrc cannot express). Chart-owned: Helm SSA resets it on every
+# `make krci`; scripts/gitlab-integrate.sh re-applies it with --force-conflicts.
 #
-# Deltas vs chart-stock — only what the .npmrc files CANNOT express:
+# Deltas vs chart-stock; all no-ops on the Nexus default path:
 #   - derive-project pre-step: CI_PROJECT_ID (url-encoded group%2Fname) from the repo's
-#     git remote, so the publish .npmrc can name the codebase's own project registry.
-#   - npm step: exports CI_PROJECT_ID (npm expands ${CI_PROJECT_ID} when reading .npmrc)
-#     and NODE_EXTRA_CA_CERTS for GitLab's self-signed TLS. NODE_EXTRA_CA_CERTS is
-#     ADDITIVE to Node's bundled roots, so registry.npmjs.org still verifies — no merged
-#     bundle needed here, unlike python's PIP_CERT which replaces the store.
+#     git remote, referenced by the publish .npmrc.
+#   - npm step: exports CI_PROJECT_ID (npm expands ${CI_PROJECT_ID} from .npmrc) and
+#     NODE_EXTRA_CA_CERTS for GitLab's self-signed TLS. NODE_EXTRA_CA_CERTS adds to
+#     Node's bundled roots, so registry.npmjs.org still verifies (python's PIP_CERT
+#     replaces the store and needs a merged bundle).
 #   - extra volumes: gitlab-ca (ConfigMap, from gitlab-up) + trust (emptyDir).
-#   - NPM_CACHE_DIR: an upstream omission this task copy fixes (see below).
-# All deltas are no-ops on the Nexus default path. scripts/gitlab-integrate.sh
-# re-applies this AFTER `make krci` with --force-conflicts.
+#   - NPM_CACHE_DIR env (see the npm step).
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -57,9 +57,8 @@ spec:
     script: |
       #!/usr/bin/env sh
       set -e
-      # Per-build GitLab project path (url-encoded group%2Fname) from the cloned repo's
-      # origin remote. GitLab accepts the encoded path as :id. Empty if not a git repo
-      # (e.g. review-only goals, which never publish).
+      # CI_PROJECT_ID = url-encoded group%2Fname from the origin remote; GitLab accepts it
+      # as :id. Empty when not a git repo (review-only goals never publish).
       cfg="$(workspaces.source.path)/$(params.PATH_CONTEXT)/.git/config"
       url="$(awk '/\[remote "origin"\]/{f=1;next} f&&/^[[:space:]]*url[[:space:]]*=/{sub(/^[^=]*=[[:space:]]*/,"");print;exit}' "$cfg" 2>/dev/null || true)"
       ns="$(printf '%s' "${url%.git}" | awk -F'[/:]' 'NF>=2{print $(NF-1)"/"$NF}')"
@@ -95,10 +94,9 @@ spec:
         secretKeyRef:
           key: url
           name: $(params.ci-nexus)
-    # Every .npmrc sets `cache=${NPM_CACHE_DIR}`, but chart-stock never exports it in
-    # THIS task (only in edp-npm), and npm leaves an undefined ${VAR} literal: the cache
-    # then resolves to a directory named '${NPM_CACHE_DIR}' created in the repo root
-    # right before `npm publish` packs it. Point it at the shared workspace cache.
+    # Every .npmrc sets `cache=${NPM_CACHE_DIR}`; chart-stock exports it only in edp-npm.
+    # Unset, npm keeps the literal and creates a '${NPM_CACHE_DIR}' directory in the repo
+    # root right before `npm publish` packs it.
     - name: NPM_CACHE_DIR
       value: $(params.CACHE_DIR)
     script: |

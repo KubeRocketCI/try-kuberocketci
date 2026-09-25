@@ -1,16 +1,13 @@
-# Patched edp-tekton `edp-npm` Task (the npm BUILD task) for GitLab-hosted dependencies.
+# Patched edp-tekton `edp-npm` Task (npm build/resolve) for GitLab-hosted dependencies
+# (local deviation). Chart-owned: Helm SSA resets it on every `make krci`;
+# scripts/gitlab-integrate.sh re-applies it with --force-conflicts.
 #
-# The `npm` task publishes; this one RESOLVES — `npm ci` in the init step pulls from the
-# krci group registry named in .npmrc-ci. That is an HTTPS call to GitLab's self-signed
-# endpoint, so without the CA it dies with DEPTH_ZERO_SELF_SIGNED_CERT before any build
-# runs. The .npmrc has no usable TLS knob here (npm's `cafile` would need the CA file to
-# be mounted, which is the very thing missing), so this is a task-level delta.
-#
-# Delta vs chart-stock — one row:
-#   - init step: NODE_EXTRA_CA_CERTS + the gitlab-ca ConfigMap volume. ADDITIVE to Node's
-#     bundled roots, so registry.npmjs.org (reached via the group registry's forwarding)
-#     still verifies, and it is a no-op when the ConfigMap is absent.
-# scripts/gitlab-integrate.sh re-applies this AFTER `make krci` with --force-conflicts.
+# `npm ci` in the init step resolves from the krci group registry in .npmrc-ci over
+# GitLab's self-signed HTTPS; without the CA it fails with DEPTH_ZERO_SELF_SIGNED_CERT.
+# npm's `cafile` in .npmrc needs the CA file mounted, hence a task-level delta.
+# Delta vs chart-stock, init step only: NODE_EXTRA_CA_CERTS + the gitlab-ca ConfigMap
+# volume. Adds to Node's bundled roots (registry.npmjs.org, reached via group-registry
+# forwarding, still verifies); no-op when the ConfigMap is absent.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:

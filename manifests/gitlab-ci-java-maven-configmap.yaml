@@ -1,18 +1,14 @@
-# GitLab CI template ConfigMap for KubeRocketCI's GitLab CI path (Codebase ciTool=gitlab).
+# .gitlab-ci.yml template for Codebases with ciTool=gitlab.
 #
-# The codebase-operator (codebase-operator 2.33.0) resolves a .gitlab-ci.yml template
-# from a ConfigMap, picked by: the Codebase annotation
-# app.edp.epam.com/gitlab-ci-template, then gitlab-ci-{lang}-{buildtool}, then
-# gitlab-ci-{lang}, then gitlab-ci-default. It substitutes ONLY {{.CodebaseName}},
-# commits the result as .gitlab-ci.yml, and pushes it (no Tekton EventListener).
+# codebase-operator >= 2.33.0 resolves the template ConfigMap in this order: Codebase
+# annotation app.edp.epam.com/gitlab-ci-template, gitlab-ci-{lang}-{buildtool},
+# gitlab-ci-{lang}, gitlab-ci-default. It substitutes {{.CodebaseName}} only and
+# commits the result as .gitlab-ci.yml (no Tekton EventListener).
 #
-# sample-gitlabci-codebase.yaml points at this ConfigMap by annotation. The body is the
-# upstream kuberocketci/ci-java17-mvn orchestration, but the component is pinned to the
-# LOCALLY MIRRORED copy (kuberocketci/ci-java17-mvn @0.1.1 on this GitLab — see
-# scripts/gitlab-ci-onboard.sh) at a fixed tag, since GitLab CI/CD components only
-# resolve on the same instance ($CI_SERVER_FQDN). $CI_SERVER_FQDN, $CI_DEFAULT_BRANCH,
-# $CI_REGISTRY_IMAGE etc. are GitLab predefined vars expanded at job time — left literal
-# here (the operator only rewrites {{.CodebaseName}}).
+# Body = the upstream kuberocketci/ci-java17-mvn orchestration with the component pinned
+# to the local mirror (kuberocketci/ci-java17-mvn @0.1.1 on this GitLab, seeded by
+# scripts/gitlab-ci-onboard.sh): CI/CD components resolve only on the same instance
+# ($CI_SERVER_FQDN). $CI_* are GitLab predefined variables, expanded at job time.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -37,10 +33,10 @@ data:
 
     variables:
       CODEBASE_NAME: "{{.CodebaseName}}"
-      # Java 17 Maven build/test image (multi-arch -> runs native on the arm64 node).
+      # Multi-arch image: runs native on the arm64 node.
       CONTAINER_IMAGE: "maven:3.9-eclipse-temurin-17"
-      # The mirrored build component's buildkit-build is patched to push to the project's
-      # own GitLab registry ($CI_REGISTRY_IMAGE); this input is kept for fidelity.
+      # The mirrored build component pushes to the project's own GitLab registry
+      # ($CI_REGISTRY_IMAGE).
       IMAGE_REGISTRY: "$CI_REGISTRY_IMAGE"
       CHART_DIR: "deploy-templates"
 

@@ -1,11 +1,8 @@
-# KubeRocketCI AppProject for Argo CD. The Argo CD helm chart can't express
-# AppProjects in values, so it's applied as a manifest by `make argocd` (it lives in
-# the argocd ns and is self-contained — no dependency on the krci ns or GitLab).
-# Mirrors edp-cluster-add-ons argo-cd appProjectKRCI + the KRCI docs:
-# https://docs.kuberocketci.io/docs/operator-guide/cd/argocd-integration
-#
-# sourceRepos is left wide ('*') so the baseline install doesn't couple to a git host;
-# the host-specific repo credentials are registered later by scripts/argocd-integrate.sh.
+# KubeRocketCI AppProject. Applied by `make argocd` (the argo-cd chart cannot express
+# AppProjects in values). Mirrors edp-cluster-add-ons appProjectKRCI and
+# https://docs.kuberocketci.io/docs/operator-guide/cd/argocd-integration.
+# sourceRepos '*': no git-host coupling; repo credentials come from
+# scripts/argocd-integrate.sh.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:

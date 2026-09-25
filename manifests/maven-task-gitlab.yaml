@@ -1,16 +1,13 @@
-# Patched edp-tekton `maven` Task for GitLab Package Registry builds.
+# Patched edp-tekton `maven` Task for GitLab Package Registry builds (local deviation;
+# settings.xml cannot express TLS trust, a per-project publish target, or the transport).
+# Chart-owned: Helm SSA resets it on every `make krci`; scripts/gitlab-integrate.sh
+# re-applies it with --force-conflicts.
 #
-# The chart-stock maven task assumes Nexus and has no way to (a) trust GitLab's
-# self-signed TLS, (b) provide a per-project publish target, or (c) avoid the
-# Maven-3.9 upload bug against GitLab. settings.xml can express none of these, so
-# they live here. scripts/gitlab-integrate.sh re-applies this AFTER `make krci`
-# (Helm 4 SSA resets the chart copy on every install) with --force-conflicts.
-#
-# Deltas vs chart-stock (see docs/registry-integration.md):
-#   - trust-gitlab-ca pre-step: imports cm/gitlab-ca into a JVM truststore AND
-#     derives CI_PROJECT_ID (url-encoded group%2Fname) from the repo's git remote.
-#   - mvn step: bash wrapper exports CI_PROJECT_ID; MAVEN_OPTS forces the wagon
-#     transport (trusts the truststore + avoids GitLab's 415 on uploads).
+# Deltas vs chart-stock (docs/registry-integration.md):
+#   - trust-gitlab-ca pre-step: imports cm/gitlab-ca into a JVM truststore and derives
+#     CI_PROJECT_ID (url-encoded group%2Fname) from the repo's git remote.
+#   - mvn step: bash wrapper exports CI_PROJECT_ID; MAVEN_OPTS selects the wagon
+#     transport (uses the truststore; Maven 3.9's native transport gets 415 on uploads).
 #   - extra volumes: gitlab-ca (ConfigMap, from gitlab-up) + trust (emptyDir).
 apiVersion: tekton.dev/v1
 kind: Task
@@ -57,16 +54,14 @@ spec:
     script: |
       #!/usr/bin/env bash
       set -e
-      # (a) Trust the GitLab self-signed CA so Maven can reach the GitLab Package
-      #     Registry over HTTPS (settings.xml has no TLS knob).
+      # JVM truststore with the GitLab self-signed CA (settings.xml has no TLS knob).
       cp -f "$JAVA_HOME/lib/security/cacerts" /trust/cacerts
       chmod u+w /trust/cacerts
       keytool -importcert -noprompt -trustcacerts -alias gitlab \
         -file /var/gitlab-ca/gitlab-ca.crt -keystore /trust/cacerts -storepass changeit
-      # (b) Derive the GitLab project path (url-encoded group%2Fname) from the
-      #     cloned repo's origin remote. GitLab accepts the encoded path as :id, so
-      #     `mvn deploy` can publish to .../projects/<path>/packages/maven without an
-      #     API token. Empty if not a git repo (e.g. review-only goals).
+      # CI_PROJECT_ID = url-encoded group%2Fname from the origin remote; GitLab accepts
+      # it as :id, so `mvn deploy` needs no API token. Empty when not a git repo
+      # (review-only goals).
       cfg="$(workspaces.source.path)/$(params.CONTEXT_DIR)/.git/config"
       url="$(awk '/\[remote "origin"\]/{f=1;next} f&&/^[[:space:]]*url[[:space:]]*=/{sub(/^[^=]*=[[:space:]]*/,"");print;exit}' "$cfg" 2>/dev/null || true)"
       ns="$(printf '%s' "${url%.git}" | awk -F'[/:]' 'NF>=2{print $(NF-1)"/"$NF}')"
@@ -97,8 +92,8 @@ spec:
     - name: HOME
       value: $(workspaces.source.path)
     - name: MAVEN_OPTS
-      # wagon transport: (1) trusts the GitLab self-signed CA via the JVM truststore,
-      # (2) avoids GitLab's 415 on uploads that Maven 3.9's default (native) transport hits.
+      # wagon transport: uses the JVM truststore; Maven 3.9's native transport gets 415
+      # from GitLab on uploads.
       value: -Dmaven.resolver.transport=wagon -Djavax.net.ssl.trustStore=/trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit
     - name: SONAR_TOKEN
       valueFrom:

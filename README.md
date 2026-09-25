@@ -84,7 +84,7 @@ reproduce issues, or develop integrations against it.
 
 - **Docker Desktop**, **≥ 8 GB RAM** (the full bed with GitLab + SonarQube wants
   **12 GB+**).
-- `kind`, `helm`, `kubectl` on `PATH` (`make tools` installs `kind` via brew).
+- `kind` ≥ 0.32, `helm`, `kubectl` on `PATH` (`make tools` installs `kind` via brew).
 - macOS (Apple Silicon or Intel) or Linux. On Apple Silicon, amd64-only images
   (Portal, GitLab, sonar-operator) run under Docker Desktop's Rosetta.
 
@@ -154,14 +154,14 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
 
 | Layer        | Component                                  | Version                         | Namespace        |
 |--------------|--------------------------------------------|---------------------------------|------------------|
-| Cluster      | kind (k8s)                                 | v1.35.0                         | —                |
-| Ingress      | ingress-nginx                              | controller-v1.11.3              | ingress-nginx    |
-| Certs        | cert-manager                               | v1.16.2                         | cert-manager     |
-| CI engine    | Tekton Pipelines / Triggers                | v1.6.2 / v0.36.0                | tekton-pipelines |
-| Platform     | KubeRocketCI (edp-install)                 | 3.13.5                          | krci             |
-| Monitoring   | kube-prometheus-stack (+Grafana)           | 84.5.0                          | monitoring       |
+| Cluster      | kind (k8s)                                 | v1.36.4                         | —                |
+| Ingress      | ingress-nginx                              | controller-v1.15.1              | ingress-nginx    |
+| Certs        | cert-manager                               | v1.21.2                         | cert-manager     |
+| CI engine    | Tekton Pipelines / Triggers                | v1.6.7 / v0.37.1                | tekton-pipelines |
+| Platform     | KubeRocketCI (edp-install)                 | 3.15.0                          | krci             |
+| Monitoring   | kube-prometheus-stack (+Grafana)           | 91.5.2                          | monitoring       |
 | Run storage  | Tekton Results (+ minimal Postgres)        | v0.20.0                         | tekton-pipelines |
-| CD engine    | Argo CD (single instance)                  | chart 9.5.17 / v3.4.3           | argocd           |
+| CD engine    | Argo CD (single instance)                  | chart 10.9.2 / v3.5.3           | argocd           |
 | Code quality | SonarQube (+ own Postgres, sonar-operator) | chart 2025.3.1 / 25.5-community | sonar            |
 | SCM          | GitLab CE (+ Container Registry)           | 17.5.1-ce                       | gitlab           |
 
@@ -276,7 +276,7 @@ deliberate ways. Each is documented in full — with the rationale — in
 | Install method | `helm`/`kubectl`, not Argo CD GitOps, so each component is debuggable in isolation (versions still pinned to edp-cluster-add-ons)         |
 | Portal         | in-cluster subchart; runs under Rosetta on Apple Silicon; OIDC disabled — ServiceAccount-token login only (`make token`)                  |
 | Tekton tasks   | `gitlab-set-status` and `deploy-applicationset-cli` patched for self-signed GitLab / plaintext Argo CD, re-applied after each `make krci` |
-| Argo CD        | single instance (not HA), chart `9.5.17`, plus an apps-in-any-namespace RBAC addition the chart omits                                     |
+| Argo CD        | single instance (not HA), chart `10.9.2`, plus an apps-in-any-namespace RBAC addition the chart omits                                     |
 | SonarQube      | own minimal Postgres instead of the bundled DB / Crunchy PGO                                                                              |
 | Tekton Results | single stock `postgres:16-alpine` (no Crunchy PGO)                                                                                        |
 | GitLab         | self-hosted dependency on self-signed HTTPS; CoreDNS split-horizon + containerd registry mirror                                           |

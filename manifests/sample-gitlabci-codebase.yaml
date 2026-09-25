@@ -1,26 +1,21 @@
-# Java/Maven sample Codebase for `make e2e-gitlabci` — CI engine is GitLab CI, NOT Tekton.
+# Java/Maven sample Codebase for `make e2e-gitlabci`: CI runs in GitLab CI, not Tekton.
 #
-# spec.ciTool=gitlab flips KubeRocketCI's multi-CI behaviour (codebase-operator 2.33.0):
-# the operator SKIPS creating a Tekton EventListener/webhook for this codebase and instead
-# pushes a .gitlab-ci.yml (resolved from the gitlab-ci-java-maven ConfigMap via the
-# annotation below). GitLab CI then runs the pipeline on the in-cluster GitLab Runner
-# (make gitlab-runner). The same `gitlab` GitServer is reused side-by-side with the
-# Tekton codebases (test-go-app, test-java-app) — no tektonDisabled needed.
+# ciTool=gitlab (codebase-operator >= 2.33.0): the operator creates no Tekton
+# EventListener/webhook and pushes a .gitlab-ci.yml resolved from the ConfigMap named by
+# the annotation below. Jobs run on the in-cluster GitLab Runner (`make gitlab-ci`). The
+# `gitlab` GitServer is shared with the Tekton codebases; tektonDisabled is not needed.
 #
-# strategy=import: scripts/gitlab-ci-onboard.sh pre-seeds the repo from the upstream
-# ci-java17-mvn sample (minus its own .gitlab-ci.yml). PutProject is skipped for import,
-# but the operator still runs PutGitLabCIConfig — it clones the repo, injects our
-# .gitlab-ci.yml (from the gitlab-ci-java-maven ConfigMap) and pushes it. The sample
-# already carries its Helm chart in deploy-templates/, so disablePutDeployTemplates keeps
-# the operator from overwriting it with the generic KRCI chart.
+# strategy=import: scripts/gitlab-ci-onboard.sh seeds the repo from the upstream
+# ci-java17-mvn sample without its .gitlab-ci.yml. Import skips PutProject; the operator
+# still runs PutGitLabCIConfig (clone, inject .gitlab-ci.yml, push).
 apiVersion: v2.edp.epam.com/v1
 kind: Codebase
 metadata:
   name: java-gitlabci-app
   namespace: krci
   annotations:
-    # Select the tech-specific GitLab CI template (else: gitlab-ci-java-maven ->
-    # gitlab-ci-java -> gitlab-ci-default fallback). See the ConfigMap manifest.
+    # Template ConfigMap. Fallback order without it: gitlab-ci-java-maven ->
+    # gitlab-ci-java -> gitlab-ci-default.
     app.edp.epam.com/gitlab-ci-template: gitlab-ci-java-maven
 spec:
   type: application
@@ -34,9 +29,8 @@ spec:
   gitServer: gitlab
   gitUrlPath: /krci/java-gitlabci-app
   deploymentScript: helm-chart
-  # The seeded sample already ships its Helm chart in deploy-templates/ (which the
-  # helm-lint / helm-docs jobs use), so skip the operator pushing the generic KRCI
-  # deploy chart over it.
+  # The seeded sample ships its own chart in deploy-templates/ (used by the helm-lint /
+  # helm-docs jobs); the operator must not overwrite it with the generic KRCI chart.
   disablePutDeployTemplates: true
   versioning:
     type: default

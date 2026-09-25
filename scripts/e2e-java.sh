@@ -1,28 +1,22 @@
 #!/usr/bin/env bash
-# Validate the Java/Maven -> GitLab Package Registry path, the way scripts/e2e.sh
-# validates the Go path: onboard a maven Codebase (create strategy), open a merge
-# request (review pipeline), then merge it (build pipeline). The point is the
-# artifact-registry integration — Maven resolving from Central + the GitLab group
-# endpoint, and publishing via `mvn deploy` to the per-project endpoint.
+# Validate the Java/Maven -> GitLab Package Registry path, like scripts/e2e.sh for Go:
+# onboard a maven Codebase (create strategy), open a merge request (review pipeline),
+# merge it (build pipeline). Covers the artifact-registry integration: Maven resolves
+# from Central + the GitLab group endpoint and publishes via `mvn deploy` to the
+# per-project endpoint.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# KNOWN DOCKER ISSUE — NOT fixed here, by design (this script only EXPLAINS it):
-#
-#   On Apple Silicon (arm64) the kaniko image steps fail:
+# Known arm64 limitation (tolerated, not fixed here):
+#   On Apple Silicon the kaniko image steps fail:
 #       review : dockerbuild-verify   build : container-build
 #       -> "no child with platform linux/arm64 in index
 #           public.ecr.aws/docker/library/eclipse-temurin:17-jre-alpine"
-#
 #   The scaffolded template's Dockerfile base `eclipse-temurin:17-jre-alpine` is
-#   amd64-only (the alpine Temurin images have no arm64 build), so kaniko cannot
-#   build the image on an arm64 node. This is an ARCHITECTURE issue in the upstream
-#   template — NOT a registry/Maven issue. To fix it, change the base in the
-#   codebase's Dockerfile to a multi-arch image, e.g. `FROM eclipse-temurin:17-jre`
-#   (amd64 + arm64).
-#
-#   This script therefore TOLERATES failures limited to {dockerbuild-verify,
-#   container-build} and asserts only that the Maven/registry (and all other) tasks
-#   are green. On an amd64 host the docker steps pass and runs are fully green.
+#   amd64-only (alpine Temurin images have no arm64 build). Upstream template issue,
+#   not registry/Maven. Fix in the codebase Dockerfile: a multi-arch base, e.g.
+#   `FROM eclipse-temurin:17-jre` (amd64 + arm64).
+#   Failures limited to {dockerbuild-verify, container-build} are tolerated; the
+#   Maven/registry and all other tasks must be green. On amd64 hosts runs are fully green.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -32,11 +26,10 @@ KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 # Failures limited to these tasks are the known amd64-only-base-image issue on arm64.
 ARCH_TASKS="dockerbuild-verify container-build"
-# GitLab can deliver the MR webhook twice; the duplicate run fails fast on these:
-# the start gate (SHA/context already reported) and its finally reporter. The
-# review pipeline reports via the single 'gitlab-report-pipeline-status'; the build
-# pipeline uses the two-task build vote, of which only 'gitlab-set-failure-status'
-# can report a failed condition.
+# GitLab can deliver the MR webhook twice; the duplicate run fails fast on these tasks:
+# the start gate (SHA/context already reported) and its finally reporter. The review
+# pipeline reports via 'gitlab-report-pipeline-status'; the build pipeline's two-task
+# vote can report a failed condition only from 'gitlab-set-failure-status'.
 DUP_TASKS="report-pipeline-start-to-gitlab gitlab-report-pipeline-status gitlab-set-failure-status"
 
 say(){ echo "==> $*"; }; info(){ echo "    $*"; }; fail(){ echo "E2E-JAVA: FAIL — $*"; exit 1; }

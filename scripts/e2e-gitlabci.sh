@@ -19,7 +19,7 @@ say(){ echo "==> $*"; }; info(){ echo "    $*"; }; fail(){ echo "E2E-GITLABCI: F
 
 GLPOD="$($KUBECTL -n $GL_NS get pod -l app=gitlab -o jsonpath='{.items[0].metadata.name}')"
 PAT="$($KUBECTL -n $NS get secret ci-gitlab -o jsonpath='{.data.token}' | base64 -d)"
-# Run a GitLab REST call from inside the gitlab pod (self-signed https://localhost).
+# GitLab REST call from inside the gitlab pod (self-signed https://localhost).
 gl(){ local m="$1" p="$2" b="${3:-}"
   if [ -n "$b" ]; then $KUBECTL -n $GL_NS exec "$GLPOD" -- curl -sk -X "$m" -H "PRIVATE-TOKEN: $PAT" -H 'Content-Type: application/json' -d "$b" "https://localhost/api/v4/$p"
   else $KUBECTL -n $GL_NS exec "$GLPOD" -- curl -sk -X "$m" -H "PRIVATE-TOKEN: $PAT" "https://localhost/api/v4/$p"; fi; }
