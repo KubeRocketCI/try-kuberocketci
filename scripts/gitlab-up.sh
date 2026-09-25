@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Phase: bring up self-hosted GitLab and everything KRCI needs BEFORE the platform
-# chart installs. Runs before `make krci`. Pairs with scripts/gitlab-integrate.sh
-# (post-krci). The GitServer + EventListener + Ingress are NOT created here — the
-# edp-install chart renders them from `edp-tekton.gitServers` in values; this script
-# only provisions the GitLab instance + the credentials/secrets the chart references.
+# Self-hosted GitLab plus everything KRCI needs before the platform chart installs.
+# Runs before `make krci`; pairs with scripts/gitlab-integrate.sh (post-krci). The
+# GitServer + EventListener + Ingress are rendered by the edp-install chart from
+# `edp-tekton.gitServers`; this script provisions the GitLab instance and the
+# credentials/secrets those values reference.
 #
-# Split-horizon DNS: both hostnames resolve to 127.0.0.1 for the browser but must
-# reach in-cluster services for pods. CoreDNS rewrites (both added here; the EL host
-# is deterministic = el-<gitserver>-<ns>.<wildcard>):
+# Split-horizon DNS: both hostnames resolve to 127.0.0.1 for the browser and must reach
+# in-cluster services for pods. CoreDNS rewrites added here (the EL host is
+# deterministic: el-<gitserver>-<ns>.<wildcard>):
 #   - gitlab.<wildcard>          -> gitlab.gitlab.svc            (operator -> GitLab API/clone/SSH)
 #   - el-gitlab-krci.<wildcard>  -> ingress-nginx controller     (GitLab -> webhook EventListener)
 set -euo pipefail
@@ -19,8 +19,8 @@ WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 GL_HOST="gitlab.${WILDCARD}"
 GS_NAME="gitlab"                          # must match the key in edp-tekton.gitServers
 EL_HOST="el-${GS_NAME}-${NS}.${WILDCARD}" # deterministic EventListener ingress host
-# Predictable root password (local only). Set via the Makefile GITLAB_ROOT_PASSWORD var;
-# keep this fallback in sync with the Makefile default. Applied on the FIRST DB seed.
+# Root password (local only). The Makefile GITLAB_ROOT_PASSWORD var passes it; this
+# fallback must equal the Makefile default. Applied on the first DB seed only.
 GL_ROOT_PW="${GITLAB_ROOT_PASSWORD:-KrciLocal_2026!}"
 KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,8 +42,8 @@ print(json.dumps(d))" \
 }
 
 echo "==> Ensuring self-signed TLS cert for $GL_HOST (secret gitlab-tls)"
-# The operator's GitLab REST client always uses https://, so GitLab serves TLS with
-# this self-signed cert (also usable as its own CA). Must exist before the Deployment.
+# The operator's GitLab REST client is https-only; GitLab serves TLS with this
+# self-signed cert (CA:TRUE, doubles as the CA). Must exist before the Deployment.
 $KUBECTL get ns "$GL_NS" >/dev/null 2>&1 || $KUBECTL create ns "$GL_NS"
 if ! $KUBECTL -n "$GL_NS" get secret gitlab-tls >/dev/null 2>&1; then
   CRT="$(mktemp)"; KEY="$(mktemp)"; CFG="$(mktemp)"
@@ -93,8 +93,8 @@ POD="$($KUBECTL -n $GL_NS get pod -l app=gitlab -o jsonpath='{.items[0].metadata
 echo "==> GitLab pod: $POD"
 
 echo "==> Waiting for the GitLab API + SSH to actually serve (not just /-/health)"
-# /-/health (liveness) != API/gitlab-shell ready. The chart-rendered GitServer's
-# connection check (SSH:32222 + API) needs both up so it connects on first reconcile.
+# /-/health (liveness) does not imply API/gitlab-shell ready. The GitServer connection
+# check (SSH:32222 + API) needs both on first reconcile.
 for _ in $(seq 1 90); do
   api="$($KUBECTL -n $GL_NS exec "$POD" -- curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/v4/version 2>/dev/null || echo 000)"
   ssh_up="$($KUBECTL -n $GL_NS exec "$POD" -- bash -c 'timeout 3 bash -c "echo > /dev/tcp/127.0.0.1/22" 2>/dev/null && echo ok' 2>/dev/null || true)"
@@ -107,15 +107,13 @@ echo "    (set on first DB seed; on an existing data PVC reset via:"
 echo "     kubectl -n $GL_NS exec $POD -- gitlab-rake \"gitlab:password:reset[root]\")"
 
 echo "==> Tuning instance settings (allow local webhooks; disable Auto DevOps)"
-# allow_local_requests…: GitLab blocks webhooks to private IPs by default, which would
-#   stop the merge_request hook reaching the in-cluster EventListener.
-# auto_devops_enabled=false: with it ON (GitLab's default), every codebase project the
-#   operator creates has no .gitlab-ci.yml, so GitLab auto-generates an "Auto DevOps"
-#   CI pipeline (build/test/code_quality/container_scanning/… ~8 jobs). There are no
-#   GitLab runners here, so those jobs hang "stuck" forever — pure noise next to the
-#   only status KRCI cares about, the "Review Pipeline" external commit status the
-#   gitlab-set-status task posts. Disabling the instance default means new projects
-#   inherit Auto DevOps OFF. (Existing projects inherit too, unless explicitly toggled.)
+# allow_local_requests…: GitLab blocks webhooks to private IPs by default; the
+#   merge_request hook must reach the in-cluster EventListener.
+# auto_devops_enabled=false: with the instance default on, every operator-created
+#   project (no .gitlab-ci.yml) gets an auto-generated Auto DevOps pipeline (~8 jobs)
+#   that sits "stuck" without runners, next to the only status KRCI reads: the "Review
+#   Pipeline" external commit status from gitlab-set-status. New projects inherit the
+#   instance default; existing ones too, unless explicitly toggled.
 $KUBECTL -n $GL_NS exec "$POD" -- gitlab-rails runner '
 s = ApplicationSetting.current
 s.update!(allow_local_requests_from_web_hooks_and_services: true, auto_devops_enabled: false)' >/dev/null 2>&1 || \
@@ -161,8 +159,8 @@ $KUBECTL -n "$NS" create secret generic ci-gitlab \
 rm -f "$TMPKEY" "$TMPKEY.pub"
 
 echo "==> Registry credentials: '$NS' group deploy token -> kaniko-docker-config (ns/$NS)"
-# KRCI reuses the GitLab Container Registry (:5050). Mint a group deploy token
-# (read+write registry) via the API on the pod's localhost (revoke old ones first).
+# KRCI uses the GitLab Container Registry (:5050). Group deploy token (read+write
+# registry) minted via the API on the pod's localhost; prior tokens are deleted first.
 DT_JSON="$($KUBECTL -n $GL_NS exec "$POD" -- bash -c "
 for id in \$(curl -sk -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens | grep -o '\"id\":[0-9]*' | grep -o '[0-9]*'); do
   curl -sk -X DELETE -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens/\$id >/dev/null
@@ -176,10 +174,10 @@ if [ -n "$REG_TOKEN" ]; then
   $KUBECTL -n "$NS" create secret docker-registry kaniko-docker-config \
     --docker-server="${GL_HOST}:5050" --docker-username=krci-registry --docker-password="$REG_TOKEN" \
     --dry-run=client -o yaml | $KUBECTL apply -f -
-  # `regcred` = the image PULL secret KRCI's cd-pipeline-operator copies into each deploy
-  # namespace as the workload imagePullSecret. The Stage reconcile chain fails
-  # ("failed to get regcred secret") without it, so the deploy pipeline's pre-deploy step
-  # can't find the per-stage configmap. Same registry creds as kaniko (token has read_registry).
+  # `regcred`: the image pull secret the cd-pipeline-operator copies into each deploy
+  # namespace as the workload imagePullSecret. Without it the Stage reconcile fails
+  # ("failed to get regcred secret") and the deploy pipeline's pre-deploy step finds no
+  # per-stage configmap. Same creds as kaniko (token has read_registry).
   $KUBECTL -n "$NS" create secret docker-registry regcred \
     --docker-server="${GL_HOST}:5050" --docker-username=krci-registry --docker-password="$REG_TOKEN" \
     --dry-run=client -o yaml | $KUBECTL apply -f -
@@ -189,10 +187,10 @@ fi
 
 echo "==> Package registry: '$NS' group deploy token -> ci-nexus (ns/$NS)"
 # The edp-tekton maven/npm/python build tasks read secret 'ci-nexus' (keys
-# username/password/url). KRCI here has no Nexus, so point it at GitLab's Package
-# Registry. Separate group deploy token with PACKAGE scopes (krci-registry above is
-# container-registry only). Delete only prior 'krci-packages' tokens (the krci-registry
-# block above already delete-all's; we must not clobber the token it just created).
+# username/password/url); with no Nexus here it points at GitLab's Package Registry.
+# Separate group deploy token with package scopes (krci-registry above is
+# container-registry only). Only prior 'krci-packages' tokens are deleted here; the
+# krci-registry block above deletes all, and its fresh token must survive.
 PKG_JSON="$($KUBECTL -n $GL_NS exec "$POD" -- bash -c "
 for id in \$(curl -sk -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens | grep -o '\"id\":[0-9]*' | grep -o '[0-9]*'); do
   curl -sk -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens/\$id | grep -q '\"name\":\"krci-packages\"' \
@@ -216,12 +214,12 @@ else
 fi
 
 echo "==> Teaching the kind node's containerd to pull from the GitLab registry"
-# Deployed workloads reference gitlab.127.0.0.1.nip.io:5050/<group>/<repo>, but containerd
-# on the NODE resolves that host to 127.0.0.1 (nip.io) — the CoreDNS rewrite only helps
-# in-cluster pods, so image pulls fail with "dial 127.0.0.1:5050: connection refused".
-# Drop a hosts.toml that mirrors the registry host to the GitLab service ClusterIP (which
-# the node reaches via kube-proxy) and skips the self-signed cert. config_path is enabled
-# in kind/cluster.yaml, so certs.d is read per-pull (no containerd restart needed).
+# Deployed workloads reference gitlab.127.0.0.1.nip.io:5050/<group>/<repo>; containerd
+# on the node resolves that host to 127.0.0.1 (nip.io), and the CoreDNS rewrite covers
+# pods only, so pulls fail with "dial 127.0.0.1:5050: connection refused". A hosts.toml
+# mirrors the registry host to the GitLab service ClusterIP (reachable from the node via
+# kube-proxy) with skip_verify for the self-signed cert. config_path is enabled in
+# kind/cluster.yaml, so certs.d is read per pull (no containerd restart).
 NODE="${KIND_NODE:-${CLUSTER:-krci}-control-plane}"
 GL_CIP="$($KUBECTL -n "$GL_NS" get svc gitlab -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
 if [ -n "$GL_CIP" ] && command -v docker >/dev/null 2>&1 && docker inspect "$NODE" >/dev/null 2>&1; then

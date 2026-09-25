@@ -7,84 +7,85 @@ SHELL := /bin/bash
 # ---- config -----------------------------------------------------------------
 CLUSTER            ?= krci
 CTX                ?= kind-$(CLUSTER)
+# Kubernetes version = the kind node image; digest from the kind release notes image list
+# (https://github.com/kubernetes-sigs/kind/releases). Requires kind >= 0.32.
+KIND_NODE_IMAGE    ?= kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
 NS                 ?= krci
 WILDCARD           ?= 127.0.0.1.nip.io
 EDP_VERSION        ?= 3.15.0
 HELM_REPO_NAME     ?= epamedp
 HELM_REPO_URL      ?= https://epam.github.io/edp-helm-charts/stable
-INGRESS_NGINX_REF  ?= controller-v1.11.3
-CERT_MANAGER_VER   ?= v1.16.2
+# ingress-nginx is retired upstream; this is the final release. Its support table ends at
+# k8s 1.35; it uses the stable networking.k8s.io/v1 API only.
+INGRESS_NGINX_REF  ?= controller-v1.15.1
+# Supported k8s: 1.33-1.36.
+CERT_MANAGER_VER   ?= v1.21.2
 CERT_MANAGER_MANIFEST ?= https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VER)/cert-manager.yaml
-# Argo CD (KRCI CD engine) — community chart. Latest 9.5.17 (appVersion v3.4.3);
-# edp-cluster-add-ons pins 9.5.13/v3.4.1. Single-instance values in values/argo-cd.yaml.
+# Argo CD (KRCI CD engine); Argo CD 3.5 is tested on k8s 1.33-1.36. Chart >= 10 defaults
+# global.networkPolicy.create=true; values/argo-cd.yaml (single instance) sets it false.
 ARGOCD_REPO_NAME   ?= argo
 ARGOCD_REPO_URL    ?= https://argoproj.github.io/argo-helm
-ARGOCD_CHART_VERSION ?= 9.5.17
+ARGOCD_CHART_VERSION ?= 10.9.2
 ARGOCD_NS          ?= argocd
-# Versions pinned to what KubeRocketCI docs specify for edp-tekton compatibility.
-# NOTE: Tekton stopped publishing per-release manifests to the legacy
-# storage.googleapis.com/tekton-releases bucket (it froze at Pipelines v1.6.0 /
-# Triggers v0.34.0); newer releases ship only as GitHub release assets, so pull
-# release.yaml / interceptors.yaml from github.com/tektoncd/{pipeline,triggers}.
-TEKTON_PIPELINE    ?= https://github.com/tektoncd/pipeline/releases/download/v1.6.2/release.yaml
-TEKTON_TRIGGERS    ?= https://github.com/tektoncd/triggers/releases/download/v0.36.0/release.yaml
-TEKTON_INTERCEPT   ?= https://github.com/tektoncd/triggers/releases/download/v0.36.0/interceptors.yaml
-# Tekton Results — canonical KRCI manifest (v0.20.0) copied verbatim from
-# edp-cluster-add-ons (clusters/core/addons/tekton/results.yaml). Self-contained:
-# api-config ConfigMap baked in, TLS disabled. Backed by minimal Postgres
-# (manifests/tekton-results-postgres.yaml) that fulfils the manifest's DB contract.
+# Pipelines: the v1.6 LTS line KubeRocketCI docs validate edp-tekton against, latest patch.
+# Triggers/interceptors: current release. Manifests come from the GitHub release assets;
+# the legacy storage.googleapis.com/tekton-releases bucket is frozen at Pipelines v1.6.0 /
+# Triggers v0.34.0.
+TEKTON_PIPELINE    ?= https://github.com/tektoncd/pipeline/releases/download/v1.6.7/release.yaml
+TEKTON_TRIGGERS    ?= https://github.com/tektoncd/triggers/releases/download/v0.37.1/release.yaml
+TEKTON_INTERCEPT   ?= https://github.com/tektoncd/triggers/releases/download/v0.37.1/interceptors.yaml
+# Tekton Results — KRCI manifest copied verbatim from edp-cluster-add-ons
+# (clusters/core/addons/tekton/results.yaml): api-config ConfigMap included, TLS disabled.
+# DB: manifests/tekton-results-postgres.yaml fulfils the manifest's Postgres contract.
 TEKTON_RESULTS_MANIFEST ?= manifests/tekton-results.yaml
 TEKTON_NS          ?= tekton-pipelines
-# Prometheus (kube-prometheus-stack) — versions from edp-cluster-add-ons prometheus-operator addon.
+# kube-prometheus-stack. Chart 90 renamed the serviceMonitor auth/tls keys;
+# values/kube-prometheus-stack.yaml uses none of them.
 PROM_REPO_NAME     ?= prometheus-community
 PROM_REPO_URL      ?= https://prometheus-community.github.io/helm-charts
-PROM_CHART_VERSION ?= 84.5.0
+PROM_CHART_VERSION ?= 91.5.2
 MONITORING_NS      ?= monitoring
-# SonarQube (KRCI code-quality engine) — chart from SonarSource; version pinned to what
-# edp-cluster-add-ons ships. Backed by our own minimal Postgres (like Tekton Results).
-# The KRCI sonar-operator (epamedp) + its CRs add the quality gate / ci-user.
+# SonarQube (KRCI code-quality engine); chart kubeVersion >= 1.24. The community-branch-plugin
+# + webapp pins in values/sonarqube.yaml track the SonarQube image version; bump together.
+# DB: manifests/sonar-postgres.yaml. sonar-operator + its CRs add the quality gate / ci-user.
 SONAR_REPO_NAME    ?= sonarqube
 SONAR_REPO_URL     ?= https://SonarSource.github.io/helm-chart-sonarqube
 SONAR_CHART_VERSION ?= 2025.3.1
-SONAR_OPERATOR_VERSION ?= 3.3.0
+SONAR_OPERATOR_VERSION ?= 3.4.0
 SONAR_NS           ?= sonar
-# The kind node's containerd cache dies with the cluster, so big images would be
-# re-downloaded on every rebuild. `preload` pulls them once into the HOST docker
-# cache (survives `make down`) and copies them into the node — rebuilds skip the
-# ~3GB GitLab download. Parsed from the manifest so the image pin lives in one place.
+# Images `preload` pulls into the host docker cache (survives `make down`) and loads into
+# the node, whose containerd cache dies with the cluster (GitLab CE is ~3GB). Parsed from
+# the manifest: the image pin lives in one place.
 PRELOAD_IMAGES     ?= $(shell awk '/image: gitlab\/gitlab-ce/{print $$2}' manifests/gitlab.yaml)
-# Predictable LOCAL-ONLY GitLab root password (seeded on first install). Override to taste.
-# NB: GitLab 17.x rejects passwords containing the app name ("gitlab") or the username
-# ("root") as "commonly used", so keep this clear of those words.
+# LOCAL-ONLY GitLab root password, seeded on first install. GitLab 17.x rejects passwords
+# containing the app name ("gitlab") or the username ("root") as "commonly used".
 GITLAB_ROOT_PASSWORD ?= KrciLocal_2026!
-# GitLab Runner (Kubernetes executor) for the GitLab CI path. Chart appVersion 17.5.x
-# matches GitLab CE 17.5.1. KubeRocketCI does not bundle a runner; the GitLab CI
-# pipeline (Codebase ciTool=gitlab) needs one to execute jobs.
+# GitLab Runner (Kubernetes executor) for the GitLab CI path (Codebase ciTool=gitlab);
+# KubeRocketCI bundles no runner. Chart appVersion must match the GitLab CE version in
+# manifests/gitlab.yaml.
 GITLAB_RUNNER_CHART_VERSION ?= 0.70.5
-# Envoy Gateway (Gateway API traffic engine; Portal Networking tab) — the gateway-helm
-# OCI chart installs the Gateway API + Envoy Gateway CRDs, the controller, and the 'eg'
-# GatewayClass. `make envoy` deploys it, exposes the e2e app, and enables proxy metrics.
-ENVOY_GATEWAY_VERSION ?= v1.5.0
+# Envoy Gateway (Gateway API traffic engine; Portal Networking tab). The gateway-helm OCI
+# chart installs the Gateway API + Envoy Gateway CRDs and the controller, no GatewayClass:
+# `make envoy` applies manifests/envoy-gatewayclass.yaml. v1.9.x: Gateway API v1.6.1;
+# k8s 1.33-1.36.
+ENVOY_GATEWAY_VERSION ?= v1.9.1
 ENVOY_GATEWAY_NS      ?= envoy-gateway-system
 VALUES             ?= values/edp-install.yaml
-# Snapshot mode (`SNAPSHOT=true make testbed`): install KRCI from the SNAPSHOT helm
-# repo instead of the release, each chart as its OWN release (the edp-install umbrella
-# keeps only the shared base — all subcharts disabled) — mirroring the per-chart
-# layout of edp-delivery-gitops/tekton/dev. From-scratch only: pick a mode per
-# cluster; `make down` first to switch. Latest snapshots by default (--devel); pin
-# one chart with SNAP_VERSION_<chart>=x.y.z-SNAPSHOT.n.
+# Snapshot mode (`SNAPSHOT=true make testbed`): KRCI from the snapshot helm repo, one release
+# per chart (the edp-install umbrella renders only the shared base, all subcharts disabled);
+# the per-chart layout of edp-delivery-gitops/tekton/dev. From scratch only: one mode per
+# cluster, `make down` to switch. Latest snapshot (--devel) unless
+# SNAP_VERSION_<chart>=x.y.z-SNAPSHOT.n is set.
 SNAPSHOT             ?= false
 SNAP_HELM_REPO_NAME  ?= epamedp-snapshot
 SNAP_HELM_REPO_URL   ?= https://epam.github.io/edp-helm-charts/snapshot
-# Two ordered groups: the operators ship the CRDs (codebase-operator: GitServer,
-# QuickLink, Codebase…; cd-pipeline-operator: CDPipeline, Stage) that the umbrella
-# base (QuickLink CRs) and edp-tekton (GitServer CR) reference, so they install first.
+# Install order: CRD-owning operators first (codebase-operator: GitServer, QuickLink,
+# Codebase; cd-pipeline-operator: CDPipeline, Stage). The umbrella base (QuickLink CRs) and
+# edp-tekton (GitServer CR) reference those CRDs.
 SNAPSHOT_CRD_CHARTS  ?= codebase-operator cd-pipeline-operator
 SNAPSHOT_CHARTS      ?= edp-tekton gitfusion krci-portal
-# SonarQube + sonar-operator are OUT OF SCOPE for snapshot mode: snapshot covers
-# edp-install and its subcomponents only. The stable repo coordinates are captured
-# BEFORE the override so the `sonar` target always installs sonar-operator from
-# stable at its pin, regardless of SNAPSHOT.
+# Snapshot mode covers edp-install and its subcharts only; sonar-operator always installs
+# from the stable repo at its pin. Captured before the SNAPSHOT override below.
 STABLE_HELM_REPO_NAME := $(HELM_REPO_NAME)
 STABLE_HELM_REPO_URL  := $(HELM_REPO_URL)
 ifeq ($(SNAPSHOT),true)
@@ -135,11 +136,11 @@ tools: ## brew install kind
 
 # ---- cluster ----------------------------------------------------------------
 .PHONY: cluster
-cluster: ## Create the kind cluster (ports 80/443 -> localhost)
+cluster: ## Create the kind cluster (node image from KIND_NODE_IMAGE; ports 80/443 -> localhost)
 	@if kind get clusters 2>/dev/null | grep -qx $(CLUSTER); then \
 	  echo "cluster '$(CLUSTER)' already exists"; \
 	else \
-	  kind create cluster --config kind/cluster.yaml; \
+	  kind create cluster --config kind/cluster.yaml --image $(KIND_NODE_IMAGE); \
 	fi
 	$(KUBECTL) cluster-info
 
@@ -147,11 +148,11 @@ cluster: ## Create the kind cluster (ports 80/443 -> localhost)
 ingress: ## Install ingress-nginx (kind provider) and wait
 	$(KUBECTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(INGRESS_NGINX_REF)/deploy/static/provider/kind/deploy.yaml
 	$(KUBECTL) -n ingress-nginx wait --for=condition=Available deploy/ingress-nginx-controller --timeout=300s
-	# Also wait for the admission webhook endpoints: the controller reports Available before
-	# they're ready, racing the next Ingress create (argocd) into a "connection refused".
+	# The controller reports Available before its admission webhook endpoints serve; the next
+	# Ingress create (argocd) then fails with "connection refused". Wait for a ready endpoint.
 	@echo "waiting for ingress-nginx admission webhook endpoints..."
 	@for i in $$(seq 1 90); do \
-	  ips=$$($(KUBECTL) -n ingress-nginx get endpoints ingress-nginx-controller-admission -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null); \
+	  ips=$$($(KUBECTL) -n ingress-nginx get endpointslices -l kubernetes.io/service-name=ingress-nginx-controller-admission -o jsonpath='{.items[*].endpoints[?(@.conditions.ready==true)].addresses[*]}' 2>/dev/null); \
 	  [ -n "$$ips" ] && { echo "  admission webhook ready: $$ips"; exit 0; }; \
 	  sleep 2; \
 	done; \
@@ -171,9 +172,8 @@ tekton: ## Install Tekton Pipelines + Triggers + interceptors
 	$(KUBECTL) apply -f $(TEKTON_INTERCEPT)
 	$(KUBECTL) -n tekton-pipelines rollout status deploy/tekton-pipelines-controller --timeout=300s
 	$(KUBECTL) -n tekton-pipelines rollout status deploy/tekton-triggers-controller --timeout=300s
-	# The admission webhook MUST be serving before KubeRocketCI applies its
-	# Pipeline CRs, otherwise helm install fails with "connection refused" on
-	# webhook.pipeline.tekton.dev (server-side apply race).
+	# The admission webhook must serve before KubeRocketCI applies its Pipeline CRs; otherwise
+	# helm install fails with "connection refused" on webhook.pipeline.tekton.dev.
 	$(KUBECTL) -n tekton-pipelines rollout status deploy/tekton-pipelines-webhook --timeout=300s
 	$(KUBECTL) -n tekton-pipelines wait --for=condition=Available \
 	  deploy/tekton-pipelines-webhook deploy/tekton-triggers-webhook --timeout=300s
@@ -185,10 +185,10 @@ argocd: ## Install Argo CD (chart $(ARGOCD_CHART_VERSION), single instance) + kr
 	$(HELM) upgrade --install argocd $(ARGOCD_REPO_NAME)/argo-cd \
 	  --version $(ARGOCD_CHART_VERSION) -n $(ARGOCD_NS) --create-namespace \
 	  -f values/argo-cd.yaml --wait --timeout 600s
-	# AppProject can't be expressed in chart values; apply it here (argocd ns, self-contained).
+	# The AppProject cannot be expressed in chart values.
 	$(KUBECTL) apply -f manifests/argocd-appproject-krci.yaml
-	# apps-in-any-namespace needs the appset controller to read applications/appprojects
-	# cluster-wide (the chart doesn't grant it) — see edp-cluster-add-ons rbac-hack.
+	# apps-in-any-namespace: the appset controller needs cluster-wide read on
+	# applications/appprojects; the chart does not grant it (edp-cluster-add-ons rbac-hack).
 	$(KUBECTL) apply -f manifests/argocd-appset-rbac.yaml
 	$(KUBECTL) -n $(ARGOCD_NS) get pods
 	@echo "Argo CD UI: http://argocd.$(WILDCARD)   (user admin; password via 'make status')"
@@ -214,10 +214,9 @@ repo-snapshot: ## Add/update the KubeRocketCI SNAPSHOT helm repo
 snapshot-versions: repo-snapshot ## Show the latest SNAPSHOT chart versions
 	helm search repo $(SNAP_HELM_REPO_NAME) --devel
 
-# Install/upgrade ONE chart from the snapshot repo (e.g. `make snapshot-edp-tekton`).
-# Release name = chart name, so resource names match what the umbrella would render
-# and status/e2e/integrate targets work unchanged. Latest snapshot unless pinned
-# via SNAP_VERSION_<chart>.
+# One chart from the snapshot repo (`make snapshot-edp-tekton`). Release name = chart name:
+# resource names match the umbrella's, so status/e2e/integrate targets work unchanged.
+# Latest snapshot unless SNAP_VERSION_<chart> is set.
 snapshot-%: repo-snapshot
 	$(HELM) upgrade --install $* $(SNAP_HELM_REPO_NAME)/$* \
 	  $(if $(SNAP_VERSION_$*),--version $(SNAP_VERSION_$*),--devel) \
@@ -237,18 +236,17 @@ krci: repo ## Install KubeRocketCI (edp-install $(EDP_VERSION), or SNAPSHOT=true
 	$(KUBECTL) create namespace $(NS) --dry-run=client -o yaml | $(KUBECTL) apply -f -
 	$(KUBECTL) -n $(NS) apply -f manifests/krci-portal-secret.yaml
 ifeq ($(SNAPSHOT),true)
-	# Snapshot mode: CRD-owning operators FIRST — the umbrella base below renders
-	# QuickLink CRs and edp-tekton a GitServer CR, which need these CRDs installed.
+	# CRD-owning operators first: the umbrella base renders QuickLink CRs and edp-tekton a
+	# GitServer CR.
 	$(MAKE) $(addprefix snapshot-,$(SNAPSHOT_CRD_CHARTS))
 endif
-	# --force-conflicts: Helm 4 SSA vs the post-krci kubectl patches on gitlab-set-status /
-	# deploy-applicationset-cli; the *-integrate steps re-apply them. No-op on a clean install.
+	# --force-conflicts: Helm 4 SSA conflicts with the post-krci kubectl patches on
+	# gitlab-set-status / deploy-applicationset-cli; the *-integrate steps re-apply them.
 	$(HELM) upgrade --install edp $(HELM_REPO_NAME)/edp-install \
 	  $(EDP_VERSION_FLAG) -n $(NS) --create-namespace \
 	  -f $(VALUES) --force-conflicts --wait --timeout 900s
 ifeq ($(SNAPSHOT),true)
-	# …then the remaining component charts as their own releases, gitops-dev style
-	# (the umbrella rendered only the shared base — all subcharts off).
+	# Remaining component charts as their own releases.
 	$(MAKE) $(addprefix snapshot-,$(SNAPSHOT_CHARTS))
 endif
 	$(KUBECTL) -n $(NS) get pods
@@ -265,30 +263,26 @@ prometheus: ## Install kube-prometheus-stack ($(PROM_CHART_VERSION)) + Grafana
 
 .PHONY: tekton-results
 tekton-results: ## Install Tekton Results (v0.20.0, KRCI manifest) + minimal Postgres
-	# 1) minimal Postgres + DB secret (fulfils the manifest's results-primary /
-	# results-pguser-results contract), then 2) the canonical KRCI Results manifest.
-	# The api ConfigMap is baked into the manifest and TLS is disabled, so no
-	# separate config/cert step is needed — Postgres just has to exist first.
+	# Order: Postgres + DB secret (the manifest's results-primary / results-pguser-results
+	# contract) before the Results manifest. The api ConfigMap is in the manifest; TLS disabled.
 	$(KUBECTL) apply -f manifests/tekton-results-postgres.yaml
 	$(KUBECTL) -n $(TEKTON_NS) rollout status deploy/results-primary --timeout=300s
 	$(KUBECTL) apply -f $(TEKTON_RESULTS_MANIFEST)
 	$(KUBECTL) -n $(TEKTON_NS) rollout status deploy/tekton-results-api --timeout=300s
 	$(KUBECTL) -n $(TEKTON_NS) rollout status deploy/tekton-results-watcher --timeout=300s
-	# Ingress so the Portal can read Results at a stable nip.io URL (no port-forward).
+	# Stable nip.io URL for the Portal's Results reads.
 	$(KUBECTL) apply -f manifests/tekton-results-ingress.yaml
 	$(KUBECTL) -n $(TEKTON_NS) get pods | grep -E 'results|NAME'
 	@echo "Tekton Results API: http://tekton-results.$(WILDCARD)  (set TEKTON_RESULTS_URL to this)"
 
 .PHONY: sonar
 sonar: ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres + sonar-operator + CRs (always stable, SNAPSHOT-independent)
-	# 1) our own minimal Postgres (fulfils the add-ons sonar-primary / sonar-pguser-sonar
-	# contract), then 2) SonarQube (external jdbc -> that Postgres), then 3) the KRCI
-	# sonar-operator + its CRs (Sonar/Group/PermissionTemplate/QualityGate/User).
+	# Order: Postgres (the add-ons sonar-primary / sonar-pguser-sonar contract), SonarQube
+	# (external jdbc), sonar-operator + its CRs (Sonar/Group/PermissionTemplate/QualityGate/User).
 	$(KUBECTL) apply -f manifests/sonar-postgres.yaml
 	$(KUBECTL) -n $(SONAR_NS) rollout status deploy/sonar-primary --timeout=300s
-	# Admin secret BEFORE the chart install: the post-install hook reads it to change the
-	# default admin password on first startup (no manual first-login change), and the
-	# sonar-operator authenticates with the same secret.
+	# Admin secret before the chart: the post-install hook reads it to set the admin password
+	# on first startup; the sonar-operator authenticates with the same secret.
 	$(KUBECTL) apply -f manifests/sonar-admin-secret.yaml
 	helm repo add $(SONAR_REPO_NAME) $(SONAR_REPO_URL) 2>/dev/null || true
 	helm repo update $(SONAR_REPO_NAME)
@@ -344,10 +338,10 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && { echo -n "    SONAR_TOKEN="; $(KUBECTL) -n $(NS) get secret ci-sonarqube -o jsonpath='{.data.token}' | base64 -d; echo; } || echo "    SONAR_TOKEN=(ci-sonarqube secret not found — run make sonar-integrate)"
 
 # ---- self-hosted git --------------------------------------------------------
-# GitLab is a platform DEPENDENCY: gitlab-up runs BEFORE krci (so the chart can
-# render the GitServer/EventListener from edp-tekton.gitServers and connect using
-# the ci-gitlab secret); gitlab-integrate runs AFTER krci (operator CA + task fix
-# + GitOps repo). `make testbed` chains them in the right order.
+# GitLab is a platform dependency. gitlab-up runs before krci: the chart renders the
+# GitServer/EventListener from edp-tekton.gitServers and connects with the ci-gitlab secret.
+# gitlab-integrate runs after krci: operator CA, task patches, GitOps repo. `make testbed`
+# chains them in order.
 .PHONY: preload
 preload: ## Load the GitLab image from the host docker cache into kind (skips the ~3GB pull)
 	@for img in $(PRELOAD_IMAGES); do \
@@ -376,9 +370,9 @@ e2e-java: ## Validate Java/Maven -> GitLab Package Registry: onboard -> MR -> re
 	bash scripts/e2e-java.sh
 
 # ---- GitLab CI (alternative CI engine to Tekton) ----------------------------
-# KubeRocketCI multi-CI: a Codebase with spec.ciTool=gitlab runs its CI in GitLab CI
-# (operator injects .gitlab-ci.yml, skips the Tekton EventListener) instead of Tekton.
-# `make gitlab-ci` sets it up (runner + onboard); `make e2e-gitlabci` validates it.
+# A Codebase with spec.ciTool=gitlab runs its CI in GitLab CI: the operator injects
+# .gitlab-ci.yml and skips the Tekton EventListener. `make gitlab-ci` installs the runner
+# and onboards the app; `make e2e-gitlabci` validates.
 .PHONY: gitlab-ci
 gitlab-ci: ## (GitLab CI) Set up CI in GitLab CI instead of Tekton: install the runner + onboard the Java app
 	GITLAB_RUNNER_CHART_VERSION='$(GITLAB_RUNNER_CHART_VERSION)' bash scripts/gitlab-runner.sh
@@ -401,18 +395,16 @@ gitlab-status: ## Show GitLab + GitServer + EventListener + webhook state
 	@echo "--- gitlab-ci codebase ---"; $(KUBECTL) -n $(NS) get codebase java-gitlabci-app 2>/dev/null || echo "(none — run make gitlab-ci)"
 
 # ---- Envoy Gateway (Gateway API traffic engine) -----------------------------
-# The Gateway-API counterpart to `make ingress`: install the controller and the
-# resources it needs, nothing else. `make envoy` installs Envoy Gateway (Gateway API
-# + Envoy CRDs + controller + the 'eg' GatewayClass) and applies the standing PodMonitor
-# so Envoy proxy metrics flow into Prometheus once apps create Gateways. Applications
-# own their Gateway/HTTPRoute objects; the controller reconciles them as they appear.
-# Opt-in (not part of `make up`/`testbed`); idempotent.
+# Gateway-API counterpart of `make ingress`: controller, CRDs, the 'eg' GatewayClass and the
+# PodMonitor for Envoy proxy metrics. Applications own their Gateway/HTTPRoute objects.
+# Opt-in: not part of `make up`/`testbed`.
 .PHONY: envoy
 envoy: ## Install Envoy Gateway (Gateway API + Envoy CRDs + controller + 'eg' GatewayClass) + proxy metrics PodMonitor
 	$(HELM) upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
 	  --version $(ENVOY_GATEWAY_VERSION) -n $(ENVOY_GATEWAY_NS) --create-namespace \
 	  --wait --timeout 300s
 	$(KUBECTL) -n $(ENVOY_GATEWAY_NS) rollout status deploy/envoy-gateway --timeout=300s
+	$(KUBECTL) apply -f manifests/envoy-gatewayclass.yaml
 	$(KUBECTL) wait --for=condition=Accepted gatewayclass/eg --timeout=120s
 	$(KUBECTL) apply -f manifests/envoy-metrics-podmonitor.yaml
 
@@ -421,8 +413,7 @@ envoy: ## Install Envoy Gateway (Gateway API + Envoy CRDs + controller + 'eg' Ga
 up: preflight cluster ingress cert-manager tekton argocd ## Platform prerequisites (cluster + ingress + cert-manager + Tekton + Argo CD; no KRCI yet)
 	@echo "Prerequisites up. Next: make testbed (adds deps + GitLab, then installs KRCI last)."
 
-# Dependencies first, KRCI platform LAST (with values that wire it to them), then
-# the post-install glue. Prerequisites build left-to-right (up installs Argo CD too):
+# Dependencies first, KRCI last (its values reference them), then the post-install glue:
 #   up -> prometheus -> tekton-results -> sonar -> gitlab-up -> krci -> gitlab-integrate -> argocd-integrate -> sonar-integrate
 .PHONY: testbed
 testbed: up prometheus tekton-results sonar gitlab-up krci gitlab-integrate argocd-integrate sonar-integrate ## Full platform: deps first, KRCI (with gitServers/registry values) last

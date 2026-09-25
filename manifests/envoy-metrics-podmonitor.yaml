@@ -1,6 +1,6 @@
-# Scrapes Envoy Gateway data-plane proxy metrics (/stats/prometheus :19001) into
-# kube-prometheus-stack, so the Networking tab can show real traffic on the graph.
-# Idempotent. release:prometheus label matches the stack's (match-all) selector.
+# Envoy proxy data-plane metrics (/stats/prometheus :19001) for the Portal Networking tab.
+# Label release=prometheus: the kube-prometheus-stack PodMonitor selector (match-all in
+# values/kube-prometheus-stack.yaml).
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:

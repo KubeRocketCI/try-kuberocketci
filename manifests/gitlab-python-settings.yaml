@@ -1,17 +1,14 @@
-# GitLab Package Registry paths for the edp-tekton `python` build task.
+# GitLab Package Registry paths for the edp-tekton `python` build task (local deviation
+# from the chart-stock custom-python-settings ConfigMap, which targets Nexus).
 #
-# Replaces the chart-stock custom-python-settings ConfigMap (which targets Sonatype
-# Nexus). The chart's own copy documents these GitLab paths in comments — the only thing
-# it cannot express is the per-project id, which the python task patch supplies as
-# CI_PROJECT_ID. Unlike the maven/npm tasks, the chart's python task HARDCODES the
-# ConfigMap name rather than reading tekton.configs.pythonConfigMap, so this name is
-# carried by our python task patch; setting that value only stops the stock copy from
-# rendering. scripts/gitlab-integrate.sh applies this unchanged.
+# The chart's python task hardcodes the ConfigMap name instead of reading
+# tekton.configs.pythonConfigMap: this name is referenced by the python task patch
+# (manifests/python-task-gitlab.yaml); the values key only stops the stock copy from
+# rendering. Applied unchanged by scripts/gitlab-integrate.sh.
 #
-# Schema: RESOLVE from the group endpoint, PUBLISH to the codebase's own project.
-# The group PyPI index also forwards misses to pypi.org (GitLab package forwarding, on by
-# default and available on CE), so one index URL covers internal AND public dependencies.
-# ${CI_PROJECT_ID} is literal here — the python task expands it at run time.
+# Resolve from the group endpoint; publish to the codebase's own project. The group PyPI
+# index forwards misses to pypi.org (GitLab package forwarding, default on, available on
+# CE). ${CI_PROJECT_ID} stays literal; the python task expands it at run time.
 apiVersion: v1
 kind: ConfigMap
 metadata:

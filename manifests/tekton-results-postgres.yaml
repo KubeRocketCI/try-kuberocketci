@@ -1,17 +1,11 @@
-# Minimal PostgreSQL backing Tekton Results (local kind testbed).
-#
-# Satisfies the EXACT contract the canonical KRCI results manifest expects
-# (manifests/tekton-results.yaml, copied verbatim from edp-cluster-add-ons),
-# so that manifest needs no edits:
+# Minimal PostgreSQL for Tekton Results (local kind testbed): a stock postgres Deployment
+# in place of the add-ons' Crunchy PGO PostgresCluster `results` (PGO is not installed).
+# DB contract expected by manifests/tekton-results.yaml (verbatim edp-cluster-add-ons):
 #   * Service name     : results-primary            (DB_HOST in the api ConfigMap)
 #   * Database         : results                    (DB_NAME)
 #   * Port             : 5432                        (DB_PORT)
 #   * Credentials      : secret results-pguser-results, keys `user` / `password`
 #                        (DB_USER / DB_PASSWORD env in the api + retention pods)
-#
-# In the production add-ons repo this same contract is fulfilled by a Crunchy
-# PGO PostgresCluster named `results`. Here we use one small stock-postgres
-# Deployment instead (PGO intentionally not installed).
 ---
 apiVersion: v1
 kind: Secret
@@ -58,9 +52,9 @@ spec:
         app.kubernetes.io/name: results-primary
         app.kubernetes.io/part-of: tekton-results
     spec:
-      # tekton-pipelines enforces PodSecurity "restricted", so the pod + container
-      # must declare a compliant securityContext. postgres:16-alpine can run as an
-      # arbitrary non-root UID; PGDATA lives on the mounted volume (fsGroup-owned).
+      # tekton-pipelines enforces PodSecurity restricted: pod + container need a compliant
+      # securityContext. postgres:16-alpine runs as any non-root UID; PGDATA is on the
+      # fsGroup-owned volume.
       securityContext:
         runAsNonRoot: true
         runAsUser: 999

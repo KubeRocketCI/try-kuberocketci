@@ -1,15 +1,10 @@
-# Minimal PostgreSQL backing SonarQube (local kind testbed).
-#
-# Fulfils the EXACT DB contract the edp-cluster-add-ons `sonar` addon expects via
-# its jdbcOverwrite values, so values/sonarqube.yaml needs no DB edits:
+# Minimal PostgreSQL for SonarQube (local kind testbed): a stock postgres Deployment in
+# place of the add-ons' Crunchy PGO PostgresCluster `sonar` (PGO is not installed).
+# DB contract expected by the add-ons `sonar` jdbcOverwrite values (values/sonarqube.yaml):
 #   * Service name : sonar-primary          (jdbc host: sonar-primary.sonar)
 #   * Database     : sonar
 #   * Port         : 5432
 #   * Credentials  : secret sonar-pguser-sonar, key `password` (jdbcSecretPasswordKey)
-#
-# In the add-ons repo this contract is fulfilled by a Crunchy PGO PostgresCluster
-# named `sonar`. Here we use one small stock-postgres Deployment instead (PGO is
-# intentionally not installed) — exactly the Tekton Results approach.
 ---
 apiVersion: v1
 kind: Namespace
@@ -61,7 +56,7 @@ spec:
         app.kubernetes.io/name: sonar-primary
         app.kubernetes.io/part-of: sonar
     spec:
-      # Restricted-compliant securityContext (harmless in the default-PSA sonar ns).
+      # PodSecurity restricted-compliant (the sonar ns runs the default PSA level).
       securityContext:
         runAsNonRoot: true
         runAsUser: 999

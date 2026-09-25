@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Phase: post-KRCI SonarQube integration. Runs AFTER `make sonar` (SonarQube + operator
-# + CRs up) and `make krci` (the `krci` namespace exists). Pairs with `make sonar`.
-# The only KRCI-coupled bit: mint a token for the operator-created `ci-user` and store
-# it as the `ci-sonarqube` integration secret that the edp-tekton `sonar` task reads.
+# Post-KRCI SonarQube integration. Requires `make sonar` (SonarQube + operator + CRs up)
+# and `make krci` (namespace krci exists). Mints a token for the operator-created
+# `ci-user` and stores it as the `ci-sonarqube` integration secret the edp-tekton
+# `sonar` task reads.
 # Docs: https://docs.kuberocketci.io/docs/operator-guide/code-quality/sonarqube
 set -euo pipefail
 
@@ -11,14 +11,14 @@ NS="${NS:-krci}"
 SONAR_NS="${SONAR_NS:-sonar}"
 WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 SONAR_HOST="sonar.${WILDCARD}"
-# https directly (self-signed -> -k): the ingress force-redirects http -> https,
-# and curl strips the Authorization header on the port change of a followed
-# redirect, which turns every authenticated API call into an anonymous one.
+# https directly (self-signed -> -k). The ingress redirects http -> https, and curl
+# drops the Authorization header on a followed redirect that changes port:
+# authenticated calls become anonymous.
 SONAR_API="https://${SONAR_HOST}"
 SONAR_SVC_URL="http://sonar.${SONAR_NS}.svc:9000"   # in-cluster URL the sonar task uses
 KUBECTL="kubectl --context $CTX"
-# Admin creds = the post-install hook-set password (manifests/sonar-admin-secret.yaml),
-# NOT the default admin/admin (which is changed away on first startup).
+# Admin password: set by the chart's post-install hook from
+# manifests/sonar-admin-secret.yaml (default admin/admin is rotated on first startup).
 ADMIN_PW="$($KUBECTL -n "$SONAR_NS" get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d)"
 ADMIN="admin:${ADMIN_PW}"
 
@@ -43,7 +43,7 @@ if [ -z "${found:-}" ]; then
 fi
 
 echo "==> Minting a SonarQube token (login=$LOGIN) for the ci-sonarqube secret"
-# Revoke any prior token of this name so re-runs are idempotent, then generate.
+# A prior token of this name is revoked first; generate is not idempotent.
 curl -fsSLk -m 10 -u "$ADMIN" -X POST "$SONAR_API/api/user_tokens/revoke" \
   --data-urlencode "name=krci-ci" --data-urlencode "login=$LOGIN" >/dev/null 2>&1 || true
 TOKEN="$(curl -fsSLk -m 10 -u "$ADMIN" -X POST "$SONAR_API/api/user_tokens/generate" \
@@ -67,8 +67,8 @@ stringData:
   token: "${TOKEN}"
 EOF
 
-# The Portal's Sonar client needs SONAR_TOKEN (only minted now); patch it into the
-# Portal secret + restart. Skipped if the Portal secret isn't present.
+# The Portal's Sonar client reads SONAR_TOKEN from krci-portal-secret; the token exists
+# only from this point. Patched in and the Portal restarted; skipped without the secret.
 if $KUBECTL -n "$NS" get secret krci-portal-secret >/dev/null 2>&1; then
   echo "==> Wiring SONAR_TOKEN into the in-cluster Portal (secret/krci-portal-secret) + restart"
   $KUBECTL -n "$NS" patch secret krci-portal-secret --type merge \

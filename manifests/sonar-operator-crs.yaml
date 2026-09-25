@@ -1,9 +1,7 @@
-# edp-sonar-operator custom resources — mirrors edp-cluster-add-ons/.../sonar-operator
-# templates (sonar.yaml, *group*, permission_template, qualitygate_edp, user_ci), with
-# OIDC/Keycloak DISABLED (no Keycloak locally) and explicit namespace `sonar`.
-# Applied by `make sonar` after the operator is installed; the operator reconciles them
-# against the SonarQube API using the sonar-admin-password secret (created earlier by
-# manifests/sonar-admin-secret.yaml, whose `password` the chart hook also sets on admin).
+# edp-sonar-operator CRs: the edp-cluster-add-ons sonar-operator templates (sonar.yaml,
+# *group*, permission_template, qualitygate_edp, user_ci) with OIDC/Keycloak off and
+# namespace `sonar`. Applied by `make sonar` after the operator; the operator talks to
+# the SonarQube API with secret sonar-admin-password (manifests/sonar-admin-secret.yaml).
 ---
 apiVersion: edp.epam.com/v1alpha1
 kind: Sonar
@@ -70,11 +68,10 @@ spec:
   sonarRef:
     name: sonar
 ---
-# LOCAL-ONLY permissive gate, set as the DEFAULT so the review pipeline's `sonar` task
-# (which runs the scanner with sonar.qualitygate.wait=true) passes on the throwaway
-# sample PR. The single condition can never trip (hotspots-reviewed % is never < 0), so
-# the gate is effectively always GREEN. The strict `EDP way` gate below is kept for
-# fidelity with edp-cluster-add-ons but is no longer the default.
+# Local-only default gate. The review pipeline's `sonar` task runs the scanner with
+# sonar.qualitygate.wait=true; this gate's single condition cannot trip (hotspots
+# reviewed % is never < 0), so it is always green. The `EDP way` gate below is kept
+# but is not the default.
 apiVersion: edp.epam.com/v1alpha1
 kind: SonarQualityGate
 metadata:
@@ -132,9 +129,8 @@ spec:
       error: '0'
       op: GT
 ---
-# The SonarUser operator reads the user's password from this pre-existing secret (in
-# add-ons it's created by ESO). Without it the SonarUser CR errors "Secret ci-sonar not
-# found" and ci-user is never created.
+# The SonarUser CR reads the password from this secret (ESO-created in the add-ons).
+# Missing -> SonarUser errors "Secret ci-sonar not found" and ci-user is never created.
 apiVersion: v1
 kind: Secret
 metadata:

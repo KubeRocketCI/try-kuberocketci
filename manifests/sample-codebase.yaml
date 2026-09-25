@@ -1,15 +1,12 @@
-# End-to-end test of the GitLab webhook integration.
+# Go sample Codebase for `make e2e` (GitLab webhook -> Tekton path).
 #
-# Applying this makes the codebase-operator:
-#   1. create the GitLab project krci/test-go-app (scaffolded from the go-gin
-#      application template, since emptyProject: false) under the 'krci' group
-#      (provisioned by scripts/gitlab.sh) rather than root's personal namespace,
-#   2. create a project webhook pointing at the edp-gitlab EventListener
-#      (ingress http://el-gitlab-krci.127.0.0.1.nip.io) with the X-Gitlab-Token
-#      taken from the ci-gitlab secret's `secretString` key.
-#
-# A push to the default branch (or the CodebaseBranch below) then triggers the
-# gitlab-go-gin-app-build-default pipeline via the gitlab ClusterInterceptor.
+# On apply the codebase-operator:
+#   1. creates GitLab project krci/test-go-app under the 'krci' group (created by
+#      scripts/gitlab-up.sh), scaffolded from the go-gin template (emptyProject: false);
+#   2. creates the project webhook to the edp-gitlab EventListener
+#      (http://el-gitlab-krci.127.0.0.1.nip.io) with X-Gitlab-Token from the ci-gitlab
+#      secret's `secretString` key.
+# A push to main runs gitlab-go-gin-app-build-default via the gitlab ClusterInterceptor.
 apiVersion: v2.edp.epam.com/v1
 kind: Codebase
 metadata:

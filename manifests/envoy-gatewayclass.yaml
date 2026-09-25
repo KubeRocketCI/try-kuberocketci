@@ -1,0 +1,10 @@
+# The 'eg' GatewayClass bound to the Envoy Gateway controller. Same object as the
+# upstream quickstart.yaml; the gateway-helm chart does not render it.
+# Applied by `make envoy` once the controller is running, so it reconciles the object
+# and sets the Accepted condition the wait step checks.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller

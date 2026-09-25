@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Onboard a Java/Maven application that runs its CI in GitLab CI instead of Tekton.
+# Onboard a Java/Maven application whose CI runs in GitLab CI instead of Tekton.
 # Pairs with scripts/gitlab-runner.sh (the runner) and scripts/e2e-gitlabci.sh (the e2e).
 #
-# What it does (idempotent), all host-side over the GitLab ingress (self-signed, -k):
-#   1. mirror the upstream KubeRocketCI component gitlab.com/kuberocketci/ci-java17-mvn
-#      into THIS GitLab as kuberocketci/ci-java17-mvn @0.1.1 — GitLab CI/CD components
-#      only resolve on the same instance ($CI_SERVER_FQDN). The mirror carries ONE local
-#      deviation: the buildkit-build job pushes to the in-cluster GitLab registry
-#      ($CI_REGISTRY_IMAGE, job-token auth, registry.insecure) instead of Docker Hub.
+# Steps (idempotent), host-side over the GitLab ingress (self-signed, -k):
+#   1. mirror the upstream component gitlab.com/kuberocketci/ci-java17-mvn into this
+#      GitLab as kuberocketci/ci-java17-mvn @0.1.1 (GitLab CI/CD components resolve only
+#      on the same instance, $CI_SERVER_FQDN). Local deviation in the mirror: the
+#      buildkit-build job pushes to the in-cluster GitLab registry ($CI_REGISTRY_IMAGE,
+#      job-token auth, registry.insecure) instead of Docker Hub.
 #   2. seed the app repo krci/java-gitlabci-app from the same sample sources, minus its
-#      own .gitlab-ci.yml (so the codebase-operator injects ours) and minus templates/
-#      (the app includes the mirrored component instead).
-#   3. set krci-group CI/CD variables the pipeline needs (SONAR_HOST_URL/TOKEN,
+#      own .gitlab-ci.yml (the codebase-operator injects one) and minus templates/ (the
+#      app includes the mirrored component).
+#   3. set the krci-group CI/CD variables the pipeline needs (SONAR_HOST_URL/TOKEN,
 #      GITLAB_ACCESS_TOKEN).
 #   4. apply the gitlab-ci-java-maven ConfigMap + the Codebase (ciTool=gitlab) and wait
 #      for the operator to push .gitlab-ci.yml.
@@ -33,9 +33,9 @@ APP_GROUP="krci"
 
 PAT="$($KUBECTL -n $NS get secret ci-gitlab -o jsonpath='{.data.token}' | base64 -d)"
 API="https://${GL_HOST}/api/v4"
-# We seed repos with the GitLab commits API (gitaly OperationService) rather than a git
-# push — simplest from the host (no working tree / push auth), and the same approach the
-# e2e scripts use. The operator still does the real git ops (clone + inject .gitlab-ci.yml).
+# Repos are seeded via the GitLab commits API (gitaly OperationService): no working tree
+# or push auth needed on the host. The operator does the git ops (clone + inject
+# .gitlab-ci.yml).
 GITC="git -c http.sslVerify=false -c commit.gpgsign=false"
 
 # Host-side GitLab REST (via the ingress, self-signed). api METHOD PATH [JSON]
@@ -59,7 +59,7 @@ ensure_project() { local group_id="$1" name="$2" vis="$3" path="$4"
   api POST "projects" "$(printf '{"name":"%s","namespace_id":%s,"visibility":"%s","initialize_with_readme":false}' "$name" "$group_id" "$vis")" | jqid; }
 set_group_var() { local gid="$1" key="$2" val="$3" type="${4:-env_var}"
   api DELETE "groups/$gid/variables/$key" >/dev/null 2>&1 || true
-  # curl --data-urlencode handles multi-line values (e.g. the CA PEM) cleanly.
+  # --data-urlencode: multi-line values (the CA PEM) survive intact.
   curl -sk -X POST -H "PRIVATE-TOKEN: $PAT" \
     --data-urlencode "key=$key" --data-urlencode "value=$val" \
     --data-urlencode "variable_type=$type" \
@@ -116,12 +116,12 @@ KGID="$(ensure_group kuberocketci public)"; [ -n "$KGID" ] || { echo "!! could n
 ensure_project "$KGID" ci-java17-mvn public "$COMPONENT_PATH" >/dev/null
 $GITC clone --quiet --depth 1 --branch "$COMPONENT_REF" "$UPSTREAM" "$TMP/comp"
 rm -rf "$TMP/comp/.git"
-# Local deviations to the mirrored component (only the two the local env genuinely
-# needs — see docs/gitlab-ci.md). git-tag stays upstream (git push works under Rosetta):
-#   build.yml/review.yml  buildkit jobs -> push to the in-cluster GitLab registry over
-#                         the job token, and build NATIVE arm64 (drop --platform amd64,
-#                         which would need emulation — and we must NOT install QEMU,
-#                         it replaces Rosetta and crashes GitLab's gitaly).
+# Local deviations in the mirrored component (see docs/gitlab-ci.md). git-tag stays
+# upstream (git push works under Rosetta):
+#   build.yml/review.yml  buildkit jobs push to the in-cluster GitLab registry over the
+#                         job token and build native arm64 (no --platform amd64; QEMU
+#                         binfmt is never installed: it replaces Rosetta and crashes
+#                         GitLab's gitaly).
 #   common.yml .buildkit-base -> SSL_CERT_FILE bundle so buildkit trusts the self-signed
 #                         registry + its jwt/auth token host.
 ( cd "$TMP/comp"; python3 - <<'PY'
@@ -181,7 +181,7 @@ sys.exit(0 if ok else 1)
 PY
 )
 seed_repo "$COMPONENT_PATH" "$TMP/comp" "Mirror of kuberocketci/ci-java17-mvn @$COMPONENT_REF (local registry patch)"
-# (re)create the version tag the ConfigMap pins (component:@0.1.1)
+# Recreate the version tag the ConfigMap pins (component:@0.1.1).
 api DELETE "projects/$(enc "$COMPONENT_PATH")/repository/tags/$COMPONENT_REF" >/dev/null 2>&1 || true
 api POST "projects/$(enc "$COMPONENT_PATH")/repository/tags?tag_name=${COMPONENT_REF}&ref=main" >/dev/null
 echo "    component mirrored: https://${GL_HOST}/${COMPONENT_PATH} (tag $COMPONENT_REF)"
@@ -192,11 +192,11 @@ AGID="$(group_id $APP_GROUP)"; [ -n "$AGID" ] || { echo "!! group $APP_GROUP mis
 ensure_project "$AGID" "$APP" private "$APP_GROUP/$APP" >/dev/null
 $GITC clone --quiet --depth 1 --branch "$COMPONENT_REF" "$UPSTREAM" "$TMP/app"
 rm -rf "$TMP/app/.git"
-rm -f  "$TMP/app/.gitlab-ci.yml"   # so the codebase-operator injects ours
+rm -f  "$TMP/app/.gitlab-ci.yml"   # the codebase-operator injects .gitlab-ci.yml
 rm -rf "$TMP/app/templates"        # the app includes the mirrored component, not local templates
-# Local deviation: the sample Dockerfile bases on eclipse-temurin:17-jre-alpine, which is
-# amd64-only. We build NATIVE arm64 (no QEMU), so swap to the multi-arch eclipse-temurin:
-# 17-jre (Debian) base — also drops the brittle apk version pins. hadolint-clean.
+# Local deviation: the sample Dockerfile base eclipse-temurin:17-jre-alpine is amd64-only.
+# Native arm64 build (no QEMU): multi-arch eclipse-temurin:17-jre (Debian) base, no apk
+# version pins. hadolint-clean.
 cat > "$TMP/app/Dockerfile" <<'DOCKERFILE'
 FROM eclipse-temurin:17-jre
 
@@ -233,10 +233,10 @@ set_group_var "$AGID" GITLAB_ACCESS_TOKEN "$PAT"
 set_group_var "$AGID" GITLAB_REGISTRY_CA "$GL_CA" file
 echo "    SONAR_HOST_URL, SONAR_TOKEN, GITLAB_ACCESS_TOKEN, GITLAB_REGISTRY_CA(file) set on group $APP_GROUP"
 
-# ── 4. apply the template ConfigMap + the Codebase; the OPERATOR injects .gitlab-ci.yml ──
-# With gitaly healthy (Rosetta, no QEMU), the operator's normal ciTool=gitlab flow works:
-# it clones the seeded repo, injects .gitlab-ci.yml from this ConfigMap, and pushes it —
-# the faithful KubeRocketCI behaviour. (disablePutDeployTemplates keeps the sample's chart.)
+# ── 4. apply the template ConfigMap + the Codebase; the operator injects .gitlab-ci.yml ──
+# Stock ciTool=gitlab flow (gitaly healthy under Rosetta): the operator clones the seeded
+# repo, injects .gitlab-ci.yml from this ConfigMap, and pushes. disablePutDeployTemplates
+# keeps the sample's chart.
 echo "==> Applying the gitlab-ci-java-maven ConfigMap + the Codebase (ciTool=gitlab)"
 $KUBECTL apply -f "$HERE/manifests/gitlab-ci-java-maven-configmap.yaml"
 $KUBECTL apply -f "$HERE/manifests/sample-gitlabci-codebase.yaml"
