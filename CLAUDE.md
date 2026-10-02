@@ -98,10 +98,19 @@ There is no app build/lint/unit-test step — this repo *orchestrates a cluster*
 For portal screenshots or headless browser automation, use a self-contained Node.js script in a temp dir — **do not use the Playwright MCP server** (it adds ~10× latency):
 
 ```bash
-WORK=$(mktemp -d) && cd "$WORK" && npm init -y >/dev/null && npm i playwright >/dev/null
-npx playwright install chromium >/dev/null
-node -e "const {chromium}=require('playwright'); (async()=>{ ... })()"
+W=$(mktemp -d "$TMPDIR/pw.XXXXXX")
+npm --prefix "$W" i playwright
+npm --prefix "$W" exec -- playwright install chromium-headless-shell
+node "$W/run.mjs"
 ```
+
+- No `cd`, no `npm init`: `npm --prefix` creates `$W/package.json`; `npm init` without a `cd`
+  writes into the current directory's `package.json`.
+- Keep scripts in `$W`. ESM resolves `playwright` from the script's directory; elsewhere the
+  import fails with `ERR_MODULE_NOT_FOUND`.
+- Run `playwright install` even with a cached browser. Each `playwright` version pins one
+  browser revision; a mismatch fails at launch with `Executable doesn't exist at …`. The
+  install is a no-op when the revision is cached.
 
 If `@playwright/mcp` is configured, prefer the above approach for any multi-step capture task.
 
