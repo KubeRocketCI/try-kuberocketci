@@ -1,0 +1,50 @@
+# Dependency-Track (KRCI SCA backend) for the local kind testbed: upstream chart
+# dependency-track/dependency-track, values adapted from edp-cluster-add-ons
+# (clusters/core/addons/dependency-track/values.yaml). Local deviations:
+#   * DB: plain postgres Deployment from manifests/deptrack-postgres.yaml in place of
+#     the add-ons' Crunchy PGO cluster; same contract (deptrack-primary, deptrack-pguser-deptrack).
+#   * OIDC off (no Keycloak locally): login is admin + the password set by `make deptrack-integrate`.
+#   * names via common.fullnameOverride (the upstream key; the add-ons' top-level
+#     fullnameOverride is not read by chart 0.41.0).
+#   * ingress host -> deptrack.127.0.0.1.nip.io (nginx), https only.
+
+common:
+  fullnameOverride: deptrack
+
+apiServer:
+  # Deployment so `make deptrack` can `rollout status deploy/deptrack-api-server`.
+  deploymentType: Deployment
+  extraEnv:
+    - name: ALPINE_DATABASE_MODE
+      value: "external"
+    - name: ALPINE_DATABASE_URL
+      value: "jdbc:postgresql://deptrack-primary.dependency-track.svc:5432/deptrack"
+    - name: ALPINE_DATABASE_DRIVER
+      value: "org.postgresql.Driver"
+    - name: ALPINE_DATABASE_USERNAME
+      value: "deptrack"
+    - name: ALPINE_DATABASE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: deptrack-pguser-deptrack
+  resources:
+    requests:
+      cpu: 500m
+      memory: 768Mi
+    limits:
+      memory: 4608Mi
+
+frontend:
+  # Browser-facing API origin; the SPA calls it directly.
+  apiBaseUrl: "https://deptrack.127.0.0.1.nip.io"
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  hostname: deptrack.127.0.0.1.nip.io
+  annotations:
+    # Allow large bom.json uploads.
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # https only, like the Portal and SonarQube (in-cluster consumers use the Service).
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"

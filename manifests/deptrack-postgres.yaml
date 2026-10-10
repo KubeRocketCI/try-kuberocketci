@@ -1,0 +1,125 @@
+# Minimal PostgreSQL for Dependency-Track (local kind testbed): a stock postgres Deployment
+# in place of the add-ons' Crunchy PGO PostgresCluster `deptrack` (PGO is not installed).
+# DB contract expected by values/dependency-track.yaml (from the add-ons values):
+#   * Service name : deptrack-primary       (jdbc host: deptrack-primary.dependency-track.svc)
+#   * Database     : deptrack
+#   * Port         : 5432
+#   * Credentials  : secret deptrack-pguser-deptrack, key `password`
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dependency-track
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deptrack-pguser-deptrack
+  namespace: dependency-track
+type: Opaque
+stringData:
+  user: deptrack
+  password: deptrack-local-pw
+  dbname: deptrack
+  host: deptrack-primary
+  port: "5432"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: deptrack-primary-data
+  namespace: dependency-track
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deptrack-primary
+  namespace: dependency-track
+  labels:
+    app.kubernetes.io/name: deptrack-primary
+    app.kubernetes.io/part-of: dependency-track
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deptrack-primary
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: deptrack-primary
+        app.kubernetes.io/part-of: dependency-track
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              value: deptrack
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: deptrack-pguser-deptrack
+                  key: user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: deptrack-pguser-deptrack
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d deptrack"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: deptrack-primary-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deptrack-primary
+  namespace: dependency-track
+  labels:
+    app.kubernetes.io/name: deptrack-primary
+    app.kubernetes.io/part-of: dependency-track
+spec:
+  selector:
+    app.kubernetes.io/name: deptrack-primary
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres

@@ -53,6 +53,13 @@ SONAR_REPO_URL     ?= https://SonarSource.github.io/helm-chart-sonarqube
 SONAR_CHART_VERSION ?= 2025.3.1
 SONAR_OPERATOR_VERSION ?= 3.4.0
 SONAR_NS           ?= sonar
+# Dependency-Track (KRCI SCA backend: `krci sca`, Portal SCA tab, the security pipeline's
+# cdxgen upload). Chart pin matches edp-cluster-add-ons clusters/core/addons/dependency-track.
+# DB: manifests/deptrack-postgres.yaml.
+DEPTRACK_REPO_NAME ?= dependency-track
+DEPTRACK_REPO_URL  ?= https://dependencytrack.github.io/helm-charts
+DEPTRACK_CHART_VERSION ?= 0.41.0
+DEPTRACK_NS        ?= dependency-track
 # Images `preload` pulls into the host docker cache (survives `make down`) and loads into
 # the node, whose containerd cache dies with the cluster (GitLab CE is ~3GB). Parsed from
 # the manifest: the image pin lives in one place.
@@ -301,6 +308,24 @@ sonar: ## Install SonarQube (chart $(SONAR_CHART_VERSION)) + own Postgres + sona
 sonar-integrate: ## (post-krci) Mint a token + create the ci-sonarqube secret in ns krci
 	bash scripts/sonar-integrate.sh
 
+.PHONY: deptrack
+deptrack: ## Install Dependency-Track (chart $(DEPTRACK_CHART_VERSION)) + own Postgres (KRCI SCA backend; optional, not part of `make testbed`)
+	# Order: Postgres (the add-ons deptrack-primary / deptrack-pguser-deptrack contract),
+	# then Dependency-Track (external jdbc).
+	$(KUBECTL) apply -f manifests/deptrack-postgres.yaml
+	$(KUBECTL) -n $(DEPTRACK_NS) rollout status deploy/deptrack-primary --timeout=300s
+	helm repo add $(DEPTRACK_REPO_NAME) $(DEPTRACK_REPO_URL) 2>/dev/null || true
+	helm repo update $(DEPTRACK_REPO_NAME)
+	$(HELM) upgrade --install deptrack $(DEPTRACK_REPO_NAME)/dependency-track \
+	  --version $(DEPTRACK_CHART_VERSION) -n $(DEPTRACK_NS) \
+	  -f values/dependency-track.yaml --wait --timeout 900s
+	$(KUBECTL) -n $(DEPTRACK_NS) get pods
+	@echo "Dependency-Track UI: https://deptrack.$(WILDCARD)  (run 'make deptrack-integrate' next)"
+
+.PHONY: deptrack-integrate
+deptrack-integrate: ## (post-krci, optional; re-run after make krci) Set the admin password, mint API keys, wire ci-dependency-track + the Portal, enable OSV
+	bash scripts/deptrack-integrate.sh
+
 # ---- access -----------------------------------------------------------------
 .PHONY: token
 token: ## Mint a 24h cluster-admin token for Portal login (local only)
@@ -319,12 +344,15 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@echo "--- argocd ---"; $(KUBECTL) -n $(ARGOCD_NS) get pods 2>/dev/null || echo "(not installed)"
 	@echo "--- sonar ---"; $(KUBECTL) -n $(SONAR_NS) get pods 2>/dev/null || echo "(not installed)"
 	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && echo "    KRCI integration: secret/ci-sonarqube present (ns $(NS))" || echo "    KRCI integration: ci-sonarqube MISSING (run make sonar-integrate)"
+	@echo "--- dependency-track ---"; $(KUBECTL) get ns $(DEPTRACK_NS) >/dev/null 2>&1 && $(KUBECTL) -n $(DEPTRACK_NS) get pods || echo "(not installed; optional: make deptrack)"
+	@$(KUBECTL) get ns $(DEPTRACK_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(NS) get secret ci-dependency-track >/dev/null 2>&1 && echo "    KRCI integration: secret/ci-dependency-track present (ns $(NS))" || echo "    KRCI integration: ci-dependency-track MISSING (run make deptrack-integrate)"; } || true
 	@echo "--- gitlab ---"; $(KUBECTL) -n gitlab get pods 2>/dev/null | grep -E 'gitlab|NAME' || echo "(not installed)"
 	@echo "--- tekton-results ---"; $(KUBECTL) -n $(TEKTON_NS) get pods 2>/dev/null | grep -E 'results' || echo "(not installed)"
 	@echo ""
 	@echo "================ Tool URLs & credentials (local only) ================"
 	@$(KUBECTL) -n $(ARGOCD_NS) get ingress argocd-server >/dev/null 2>&1 && { echo -n "  Argo CD UI:     http://argocd.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(ARGOCD_NS) get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && { echo -n "  SonarQube UI:   https://sonar.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
+	@$(KUBECTL) -n $(DEPTRACK_NS) get secret deptrack-admin-password >/dev/null 2>&1 && { echo -n "  Dep-Track UI:   https://deptrack.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(DEPTRACK_NS) get secret deptrack-admin-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "  GitLab UI:      https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "  Results API:    http://tekton-results.$(WILDCARD)" || true
 	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-grafana >/dev/null 2>&1 && { echo -n "  Grafana UI:     http://grafana.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(MONITORING_NS) get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo ")"; } || true
@@ -336,6 +364,8 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-kube-prometheus-prometheus >/dev/null 2>&1 && echo "    PROMETHEUS_URL=http://prometheus.$(WILDCARD)" || echo "    PROMETHEUS_URL=(prometheus ingress not found — run make prometheus)"
 	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && echo "    SONAR_HOST_URL=https://sonar.$(WILDCARD)" || echo "    SONAR_HOST_URL=(sonar ingress not found — run make sonar)"
 	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && { echo -n "    SONAR_TOKEN="; $(KUBECTL) -n $(NS) get secret ci-sonarqube -o jsonpath='{.data.token}' | base64 -d; echo; } || echo "    SONAR_TOKEN=(ci-sonarqube secret not found — run make sonar-integrate)"
+	@$(KUBECTL) get ns $(DEPTRACK_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(DEPTRACK_NS) get ingress deptrack >/dev/null 2>&1 && echo "    DEPENDENCY_TRACK_URL=https://deptrack.$(WILDCARD)" || echo "    DEPENDENCY_TRACK_URL=(deptrack ingress not found — run make deptrack)"; } || true
+	@$(KUBECTL) get ns $(DEPTRACK_NS) >/dev/null 2>&1 && { key=$$($(KUBECTL) -n $(NS) get secret krci-portal-secret -o jsonpath='{.data.DEPENDENCY_TRACK_API_KEY}' 2>/dev/null | base64 -d); [ -n "$$key" ] && echo "    DEPENDENCY_TRACK_API_KEY=$$key" || echo "    DEPENDENCY_TRACK_API_KEY=(not set in krci-portal-secret — run make deptrack-integrate)"; } || true
 
 # ---- self-hosted git --------------------------------------------------------
 # GitLab is a platform dependency. gitlab-up runs before krci: the chart renders the
