@@ -1,5 +1,5 @@
 # KubeRocketCI (edp-install) values for LOCAL kind testing.
-# Chart: epamedp/edp-install 3.15.0  (verified against the chart's own values.yaml)
+# Chart: epamedp/edp-install 3.16.0  (verified against the chart's own values.yaml)
 #
 # Stack that comes up with these values:
 #   codebase-operator, cd-pipeline-operator, edp-tekton (pipelines library),
@@ -141,7 +141,7 @@ externalSecrets:
   enabled: false
   manageEDPInstallSecrets: false
 
-# In-cluster Portal (edp-install subchart krci-portal 0.8.0). OIDC is disabled
+# In-cluster Portal (edp-install subchart krci-portal 0.9.0). OIDC is disabled
 # (empty issuer below), so the login screen is ServiceAccount-token only — sign in
 # with the token from `make token`. configEnv overrides only the endpoints the chart
 # placeholders don't resolve to; the rest keep chart defaults via deep merge.

@@ -12,7 +12,7 @@ CTX                ?= kind-$(CLUSTER)
 KIND_NODE_IMAGE    ?= kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
 NS                 ?= krci
 WILDCARD           ?= 127.0.0.1.nip.io
-EDP_VERSION        ?= 3.15.0
+EDP_VERSION        ?= 3.16.0
 HELM_REPO_NAME     ?= epamedp
 HELM_REPO_URL      ?= https://epam.github.io/edp-helm-charts/stable
 # ingress-nginx is retired upstream; this is the final release. Its support table ends at
