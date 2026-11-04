@@ -154,7 +154,7 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
 
 | Layer        | Component                                  | Version                         | Namespace        |
 |--------------|--------------------------------------------|---------------------------------|------------------|
-| Cluster      | kind (k8s)                                 | v1.36.4                         | —                |
+| Cluster      | kind (k8s)                                 | v1.37.0                         | —                |
 | Ingress      | ingress-nginx                              | controller-v1.15.1              | ingress-nginx    |
 | Certs        | cert-manager                               | v1.21.2                         | cert-manager     |
 | CI engine    | Tekton Pipelines / Triggers                | v1.6.7 / v0.37.1                | tekton-pipelines |
