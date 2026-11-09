@@ -139,6 +139,12 @@ spec:
             - name: tls
               mountPath: /etc/gitlab-tls
               readOnly: true
+            # Extra CAs for outbound TLS (webhooks): optional ConfigMap gitlab/trusted-certs.
+            # Mounted outside /etc/gitlab: reconfigure chmods /etc/gitlab/trusted-certs, so a
+            # read-only mount there fails it. scripts/gitlab-up.sh copies the files in.
+            - name: trusted-certs
+              mountPath: /etc/gitlab-trusted-certs-src
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -151,6 +157,10 @@ spec:
             # Self-signed cert for gitlab.127.0.0.1.nip.io; scripts/gitlab-up.sh creates it
             # before applying this Deployment.
             secretName: gitlab-tls
+        - name: trusted-certs
+          configMap:
+            name: trusted-certs
+            optional: true
 ---
 apiVersion: v1
 kind: Service

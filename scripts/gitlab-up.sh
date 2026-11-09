@@ -10,6 +10,11 @@
 # deterministic: el-<gitserver>-<ns>.<wildcard>):
 #   - gitlab.<wildcard>          -> gitlab.gitlab.svc            (operator -> GitLab API/clone/SSH)
 #   - el-gitlab-krci.<wildcard>  -> ingress-nginx controller     (GitLab -> webhook EventListener)
+#
+# Extra CAs for GitLab outbound TLS: optional ConfigMap gitlab/trusted-certs, mounted at
+# /etc/gitlab-trusted-certs-src and copied into /etc/gitlab/trusted-certs. GITLAB_TRUST_ONLY=1
+# runs only this step: apply the GitLab manifest, wait for the mount to match the ConfigMap,
+# copy, reconfigure when the set changed.
 set -euo pipefail
 
 CTX="${CTX:-kind-krci}"
@@ -40,6 +45,51 @@ print(json.dumps(d))" \
     | $KUBECTL apply -f -
   COREDNS_CHANGED=1
 }
+
+# ensure_trusted_certs: sync /etc/gitlab-trusted-certs-src (ConfigMap mount) into /etc/gitlab/trusted-certs
+# and run gitlab-ctl reconfigure when the set changed. Files the sync copied are listed in
+# /var/opt/gitlab/trusted-certs.managed; other files in the directory are not touched.
+ensure_trusted_certs() {
+  local pod want have
+  pod="$($KUBECTL -n $GL_NS get pod -l app=gitlab -o jsonpath='{.items[0].metadata.name}')"
+  want="$($KUBECTL -n $GL_NS get configmap trusted-certs -o json 2>/dev/null \
+    | python3 -I -c 'import json,sys; d=json.load(sys.stdin).get("data") or {}; sys.stdout.write("".join(d[k] for k in sorted(d)))' || true)"
+  for _ in $(seq 1 40); do
+    # Byte order, matching Python sorted(); ConfigMap keys contain no whitespace.
+    have="$($KUBECTL -n $GL_NS exec "$pod" -- bash -c \
+      'cd /etc/gitlab-trusted-certs-src 2>/dev/null || exit 0; for f in $(ls | LC_ALL=C sort); do cat "$f"; done' || true)"
+    [ "$have" = "$want" ] && break
+    sleep 3
+  done
+  [ "$have" = "$want" ] || { echo "FAIL /etc/gitlab-trusted-certs-src does not match ConfigMap gitlab/trusted-certs" >&2; return 1; }
+  $KUBECTL -n $GL_NS exec "$pod" -- bash -c '
+    set -e
+    src=/etc/gitlab-trusted-certs-src dst=/etc/gitlab/trusted-certs list=/var/opt/gitlab/trusted-certs.managed
+    mkdir -p "$dst"; touch "$list"; changed=0
+    while read -r f; do
+      [ -n "$f" ] && [ ! -e "$src/$f" ] && { rm -f "$dst/$f"; changed=1; }
+    done <"$list"
+    : >"$list.new"
+    for p in "$src"/*; do
+      [ -f "$p" ] || continue
+      f="$(basename "$p")"; echo "$f" >>"$list.new"
+      cmp -s "$p" "$dst/$f" || { cp "$p" "$dst/$f"; changed=1; }
+    done
+    mv "$list.new" "$list"
+    if [ "$changed" = 0 ]; then echo "    trusted certs unchanged"; exit 0; fi
+    gitlab-ctl reconfigure >/tmp/trusted-certs-reconfigure.log 2>&1 \
+      || { echo "FAIL gitlab-ctl reconfigure:" >&2; tail -20 /tmp/trusted-certs-reconfigure.log >&2; exit 1; }
+    echo "    trusted certs applied (reconfigured)"'
+}
+
+if [ "${GITLAB_TRUST_ONLY:-}" = 1 ]; then
+  echo "==> GitLab trusted certs (trust step only)"
+  $KUBECTL apply -f "$HERE/manifests/gitlab.yaml" >/dev/null
+  $KUBECTL -n $GL_NS rollout status deploy/gitlab --timeout=900s >/dev/null
+  $KUBECTL -n $GL_NS wait --for=condition=Ready pod -l app=gitlab --timeout=900s >/dev/null
+  ensure_trusted_certs
+  exit 0
+fi
 
 echo "==> Ensuring self-signed TLS cert for $GL_HOST (secret gitlab-tls)"
 # The operator's GitLab REST client is https-only; GitLab serves TLS with this
@@ -101,6 +151,9 @@ for _ in $(seq 1 90); do
   case "$api" in 200|401) [ "$ssh_up" = "ok" ] && { echo "    GitLab API ($api) + SSH ready"; break; };; esac
   sleep 5
 done
+
+echo "==> GitLab trusted certs (ConfigMap gitlab/trusted-certs, optional)"
+ensure_trusted_certs
 
 echo "    Root login: user 'root' / password '$GL_ROOT_PW' (from secret gitlab-root-password)"
 echo "    (set on first DB seed; on an existing data PVC reset via:"
