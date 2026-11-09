@@ -106,11 +106,10 @@ stable pins, in either mode:
    plus its own flattened values file.
 
 Release names equal chart names, so rendered resource names match the umbrella's
-and everything downstream (`*-integrate`, `status`, `e2e`) is mode-agnostic. Two
-standalone-chart defaults differ from the umbrella and are corrected in values:
+and everything downstream (`*-integrate`, `status`, `e2e`) is mode-agnostic. One
+standalone-chart default differs from the umbrella and is corrected in values:
 `cd-pipeline-operator.secretManager` (umbrella sets `own`; needed for the `regcred`
-copy into Stage namespaces) and the portal image (amd64 digest pin — the arm64
-snapshot build crashes on better_sqlite3). The snapshot `codebase-operator` (≥2.35)
+copy into Stage namespaces). The snapshot `codebase-operator` (≥2.35)
 also enforces SSH host-key verification, handled dynamically in `gitlab-integrate`
 (see below). Modes are chosen **per cluster**: `make down` first to switch.
 
@@ -248,9 +247,8 @@ each have a dedicated section above; this is the roundup:
 - **helm/kubectl, not Argo CD GitOps**, for the platform install itself — each
   component debuggable in isolation; versions still pinned to edp-cluster-add-ons.
 - **In-cluster Portal** — the `krci-portal` subchart wired to in-cluster Services
-  (`portal-config` + secret `krci-portal-secret`, HTTPS ingress), running under
-  Docker Desktop's Rosetta on Apple Silicon (amd64 image). OIDC login is left
-  unwired (no issuer in kind).
+  (`portal-config` + secret `krci-portal-secret`, HTTPS ingress). OIDC login is
+  left unwired (no issuer in kind).
 - **Patched Tekton tasks** — `gitlab-set-status` (host parsing + TLS skip) and
   `deploy-applicationset-cli` (`--plaintext`). Helm 4 SSA resets both on each
   `make krci`, so the install uses `--force-conflicts` and the integrate steps

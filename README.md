@@ -86,7 +86,7 @@ reproduce issues, or develop integrations against it.
   **12 GB+**).
 - `kind` ≥ 0.32, `helm`, `kubectl` on `PATH` (`make tools` installs `kind` via brew).
 - macOS (Apple Silicon or Intel) or Linux. On Apple Silicon, amd64-only images
-  (Portal, GitLab, sonar-operator) run under Docker Desktop's Rosetta.
+  (GitLab, sonar-operator) run under Docker Desktop's Rosetta.
 
 ## Quick start
 
@@ -166,9 +166,8 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
 | SCM          | GitLab CE (+ Container Registry)           | 17.5.1-ce                       | gitlab           |
 
 KubeRocketCI core pods (ns `krci`): `cd-pipeline-operator`, `codebase-operator`,
-`gitfusion`, `tekton-cache`, `tekton-interceptor`, `krci-portal`. On Apple Silicon,
-the Portal and other amd64-only images run under Docker Desktop's Rosetta; the
-Portal serves `https://portal.127.0.0.1.nip.io`.
+`gitfusion`, `tekton-cache`, `tekton-interceptor`, `krci-portal`. The Portal serves
+`https://portal.127.0.0.1.nip.io`.
 
 ## Credentials (local only)
 
@@ -237,9 +236,6 @@ names, so every resource keeps the name the umbrella would give it and
 - Pick a mode **per cluster** (from scratch only) — `make down` first to switch.
 - Re-roll one chart: `make snapshot-edp-tekton`; pin a version:
   `SNAP_VERSION_edp-tekton=0.27.0-SNAPSHOT.30`; list versions: `make snapshot-versions`.
-- The portal image is digest-pinned to the amd64 variant in
-  `values/snapshot/krci-portal.yaml` (arm64 snapshot builds still crash on
-  better_sqlite3) — re-pin when bumping.
 
 ## End-to-end test (`make e2e`)
 
@@ -274,7 +270,7 @@ deliberate ways. Each is documented in full — with the rationale — in
 | Area           | Deviation                                                                                                                                 |
 |----------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | Install method | `helm`/`kubectl`, not Argo CD GitOps, so each component is debuggable in isolation (versions still pinned to edp-cluster-add-ons)         |
-| Portal         | in-cluster subchart; runs under Rosetta on Apple Silicon; OIDC disabled — ServiceAccount-token login only (`make token`)                  |
+| Portal         | in-cluster subchart; OIDC disabled — ServiceAccount-token login only (`make token`)                                                      |
 | Tekton tasks   | `gitlab-set-status` and `deploy-applicationset-cli` patched for self-signed GitLab / plaintext Argo CD, re-applied after each `make krci` |
 | Argo CD        | single instance (not HA), chart `10.9.2`, plus an apps-in-any-namespace RBAC addition the chart omits                                     |
 | SonarQube      | own minimal Postgres instead of the bundled DB / Crunchy PGO                                                                              |
@@ -292,7 +288,7 @@ and [docs/gitlab-integration.md](docs/gitlab-integration.md).
 ```
 Makefile                                # all orchestration (versions pinned at top; make help)
 kind/cluster.yaml                       # single-node kind, ports 80/443 -> localhost, registry mirror
-values/edp-install.yaml                 # KubeRocketCI chart values (in-cluster portal on, amd64 image)
+values/edp-install.yaml                 # KubeRocketCI chart values (in-cluster portal on)
 values/snapshot/                        # SNAPSHOT mode: per-chart values (umbrella base + one file per release)
 values/kube-prometheus-stack.yaml       # Prometheus + Grafana values
 values/argo-cd.yaml                     # Argo CD chart values (single instance)
@@ -337,7 +333,7 @@ About **18–20 minutes** for `make testbed` and **~12 minutes** for `make e2e`,
 Docker Desktop with **12 GB+ RAM** allocated for the full bed.
 
 **Does it work on Apple Silicon (arm64)?**
-Yes. A few images are amd64-only (Portal, GitLab, sonar-operator) and run under
+Yes. A few images are amd64-only (GitLab, sonar-operator) and run under
 Docker Desktop's Rosetta emulation; everything else is multi-arch.
 
 **Can I install just one component?**
