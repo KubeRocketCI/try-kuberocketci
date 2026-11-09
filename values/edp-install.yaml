@@ -148,11 +148,6 @@ externalSecrets:
 krci-portal:
   enabled: true
 
-  image:
-    # amd64 image (arm64 variant has a better_sqlite3 bug); runs under Docker Desktop's
-    # Rosetta, like gitlab-ce/sonar-operator. name:tag@digest → digest wins; re-pin on bump.
-    tag: "0.8.0@sha256:d605bf491f427ed7efaea5c16847317a1c1e744c5fb650c38918c5603d2f21bc"
-
   configEnv:
     # No OIDC issuer in kind. An empty issuer flips the server's oidcEnabled off,
     # which hides all SSO controls and makes the login screen ServiceAccount-token

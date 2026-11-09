@@ -10,7 +10,7 @@ Prometheus, Portal) on Docker Desktop, macOS/Apple Silicon. `make help` lists ev
 This is the single most important rule for this repo.
 
 - Docker Desktop on Apple Silicon already runs **amd64** containers (GitLab CE, the
-  sonar-operator, the Portal image, …) under **Rosetta**, which emulates them correctly.
+  sonar-operator, …) under **Rosetta**, which emulates them correctly.
 - **Do NOT run `tonistiigi/binfmt --install amd64`** (or any QEMU binfmt installer). It
   **replaces Rosetta with `qemu-x86_64`** in the shared Docker-VM kernel, and QEMU's
   user-mode emulation mis-handles Go's tagged pointers → `fatal error: lfstack.push` /
