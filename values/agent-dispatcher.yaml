@@ -1,0 +1,23 @@
+# krci-agent-dispatcher chart values for the testbed (scripts/substrate-integrate.sh).
+# Set by the script: image.tag = AGENT_DISPATCHER_VERSION, agentImage = KRCI_AGENT_IMAGE,
+# ingress.host = agent-dispatcher.<WILDCARD> (the same host gets the CoreDNS rewrite).
+image:
+  repository: epamedp/krci-agent-dispatcher
+gitlab:
+  url: https://gitlab.127.0.0.1.nip.io
+  caConfigMap: gitlab-ca
+secrets:
+  gitlab: gitlab
+  hook: hook
+substrate:
+  atespace: krci-agents
+  pool: workers
+  secretsNamespace: krci-agents
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    secretName: krci-agent-dispatcher-tls
+    issuerRef:
+      kind: Issuer
+      name: krci-agents-ca

@@ -1,0 +1,36 @@
+# Testbed CA for the krci-agent-dispatcher Ingress certificate: self-signed root -> CA Certificate
+# krci-agents-ca (ECDSA P-256, 10 years) -> CA Issuer krci-agents-ca (chart value ingress.tls.issuerRef).
+# GitLab trusts this CA for the project hook: ConfigMap gitlab/trusted-certs key krci-agents-ca.crt.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned
+  namespace: krci-agents
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: krci-agents-ca
+  namespace: krci-agents
+spec:
+  isCA: true
+  commonName: krci-agents-ca
+  secretName: krci-agents-ca
+  duration: 87600h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: krci-agents-ca
+  namespace: krci-agents
+spec:
+  ca:
+    secretName: krci-agents-ca

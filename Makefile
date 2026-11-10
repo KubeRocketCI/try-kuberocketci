@@ -57,6 +57,12 @@ SONAR_NS           ?= sonar
 SUBSTRATE_EGRESS_CA ?= krci/gitlab-ca
 # Substrate release: checkout tag, image tag (ghcr.io/agent-substrate/substrate) and kubectl-ate version.
 SUBSTRATE_VERSION  ?= v1.0.0
+# krci-agent-dispatcher on the Substrate landing zone (substrate-integrate): chart version = image
+# tag (epamedp/krci-agent-dispatcher). Snapshot repo only until a stable release.
+AGENT_DISPATCHER_VERSION ?= 0.1.0-SNAPSHOT.3
+# Agent image of the issue actors (chart value agentImage); atelet pulls it from the registry.
+# Not published yet: actors cannot start until this tag is on Docker Hub.
+KRCI_AGENT_IMAGE   ?= epamedp/krci-agent-go:dev
 # Dependency-Track (KRCI SCA backend: `krci sca`, Portal SCA tab, the security pipeline's
 # cdxgen upload). Chart pin matches edp-cluster-add-ons clusters/core/addons/dependency-track.
 # DB: manifests/deptrack-postgres.yaml.
@@ -336,8 +342,10 @@ substrate: ## (optional) Install Agent Substrate $(SUBSTRATE_VERSION) from relea
 	SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' CLUSTER='$(CLUSTER)' bash scripts/substrate.sh
 
 .PHONY: substrate-integrate
-substrate-integrate: ## (post-krci, optional; re-run after make substrate) Landing zone krci-agents: egress gateway trusts SUBSTRATE_EGRESS_CA, namespace + atespace + WorkerPool + namespace policy, GitLab user krci-agent (secret krci-agents/gitlab)
-	SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' SUBSTRATE_EGRESS_CA='$(SUBSTRATE_EGRESS_CA)' bash scripts/substrate-integrate.sh
+substrate-integrate: repo-snapshot ## (post-krci, optional; re-run after make substrate) Landing zone krci-agents: egress gateway trusts SUBSTRATE_EGRESS_CA, namespace + atespace + WorkerPool + namespace policy, GitLab user krci-agent (secret krci-agents/gitlab), krci-agent-dispatcher $(AGENT_DISPATCHER_VERSION)
+	SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' SUBSTRATE_EGRESS_CA='$(SUBSTRATE_EGRESS_CA)' \
+	  AGENT_DISPATCHER_VERSION='$(AGENT_DISPATCHER_VERSION)' AGENT_DISPATCHER_REPO='$(SNAP_HELM_REPO_NAME)' \
+	  KRCI_AGENT_IMAGE='$(KRCI_AGENT_IMAGE)' WILDCARD='$(WILDCARD)' bash scripts/substrate-integrate.sh
 
 # ---- access -----------------------------------------------------------------
 .PHONY: token

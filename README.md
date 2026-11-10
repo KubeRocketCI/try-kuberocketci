@@ -195,7 +195,10 @@ GitLab users (`make gitlab-users`, run by `make gitlab-up`):
 
 The optional `make substrate` installs Agent Substrate from its release images (re-run after a
 Docker restart); `make substrate-integrate` then adds `krci-agent` (**KRCI Agent**, Developer on
-`krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`.
+`krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`. It also installs
+`krci-agent-dispatcher` (`AGENT_DISPATCHER_VERSION`, snapshot Helm repo) in `krci-agents`, with its
+hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. The agent image is
+`KRCI_AGENT_IMAGE`.
 
 The Anthropic API key is the one external secret: create it yourself, never in a file or the repo.
 Secret `krci-agents/anthropic`, key `api-key`, value = the key (`sk-ant-...`) and nothing else.
@@ -341,7 +344,7 @@ scripts/gitlab-set-status.py            # corrected gitlab-set-status task scrip
 scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts + ci-argocd + deploy patch
 scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube secret
 scripts/substrate.sh                    # (optional) Agent Substrate: release images + kubectl-ate (.cache/substrate/)
-scripts/substrate-integrate.sh          # (post-krci, optional) landing zone krci-agents: egress gateway CA, namespace/atespace/WorkerPool/namespace policy, GitLab user krci-agent
+scripts/substrate-integrate.sh          # (post-krci, optional) landing zone krci-agents: egress gateway CA, namespace/atespace/WorkerPool/namespace policy, GitLab user krci-agent, krci-agent-dispatcher
 scripts/gitlab-runner.sh                # GitLab CI: install + register the GitLab Runner
 scripts/gitlab-ci-onboard.sh            # GitLab CI: mirror the ci-java17-mvn component + onboard the app
 scripts/e2e-gitlabci.sh                 # GitLab CI: e2e (MR -> review -> merge -> build; not Tekton)
