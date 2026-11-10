@@ -6,7 +6,7 @@
 > KubeRocketCI Portal — all inside a disposable `kind` cluster on Docker Desktop.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![KubeRocketCI](https://img.shields.io/badge/KubeRocketCI-3.16.0-7B42BC.svg)](https://docs.kuberocketci.io)
+[![KubeRocketCI](https://img.shields.io/badge/KubeRocketCI-3.16.1-7B42BC.svg)](https://docs.kuberocketci.io)
 [![Kubernetes: kind](https://img.shields.io/badge/Kubernetes-kind-326CE5.svg)](https://kind.sigs.k8s.io/)
 [![CI: Tekton](https://img.shields.io/badge/CI-Tekton-FD495C.svg)](https://tekton.dev/)
 [![CD: Argo CD](https://img.shields.io/badge/CD-Argo%20CD-EF7B4D.svg)](https://argo-cd.readthedocs.io/)
@@ -158,7 +158,7 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
 | Ingress      | ingress-nginx                              | controller-v1.15.1              | ingress-nginx    |
 | Certs        | cert-manager                               | v1.21.2                         | cert-manager     |
 | CI engine    | Tekton Pipelines / Triggers                | v1.6.7 / v0.37.1                | tekton-pipelines |
-| Platform     | KubeRocketCI (edp-install)                 | 3.16.0                          | krci             |
+| Platform     | KubeRocketCI (edp-install)                 | 3.16.1                          | krci             |
 | Monitoring   | kube-prometheus-stack (+Grafana)           | 91.5.2                          | monitoring       |
 | Run storage  | Tekton Results (+ minimal Postgres)        | v0.20.0                         | tekton-pipelines |
 | CD engine    | Argo CD (single instance)                  | chart 10.9.2 / v3.5.3           | argocd           |
