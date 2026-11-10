@@ -387,6 +387,10 @@ preload: ## Load the GitLab image from the host docker cache into kind (skips th
 gitlab-up: preload ## (pre-krci) Deploy GitLab + bootstrap creds/secrets + CoreDNS
 	GITLAB_ROOT_PASSWORD='$(GITLAB_ROOT_PASSWORD)' bash scripts/gitlab-up.sh
 
+.PHONY: gitlab-users
+gitlab-users: ## (pre-krci) Onboard the KRCI GitLab users: Administrator profile, krci-ci (secret ci-gitlab); rotates tokens
+	bash scripts/gitlab-users.sh
+
 .PHONY: gitlab-integrate
 gitlab-integrate: ## (post-krci) operator CA trust + gitlab-set-status fix + GitOps repo
 	bash scripts/gitlab-integrate.sh

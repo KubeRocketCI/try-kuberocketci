@@ -186,6 +186,13 @@ KubeRocketCI core pods (ns `krci`): `cd-pipeline-operator`, `codebase-operator`,
 `make status` prints the live passwords for every UI. The **Portal** uses a 24h
 Kubernetes bearer token (`make token`), not a password.
 
+GitLab users (`make gitlab-users`, run by `make gitlab-up`):
+
+| User      | Display name  | Role                 | Credentials                                                    |
+|-----------|---------------|----------------------|----------------------------------------------------------------|
+| `root`    | Administrator | instance admin       | password above (UI login)                                      |
+| `krci-ci` | KRCI CI/CD    | Maintainer on `krci` | token + SSH key in secret `krci/ci-gitlab`; no password login  |
+
 ## Targets
 
 `make help` lists everything. Build piecemeal or all at once — each capability
@@ -199,6 +206,7 @@ make tekton-results   # add Tekton Results + its minimal Postgres
 make sonar            # add SonarQube + own Postgres + sonar-operator + CRs
 make argocd           # add Argo CD (single instance) + krci AppProject
 make gitlab-up        # (pre-krci)  deploy GitLab + bootstrap creds/secrets
+make gitlab-users     # (pre-krci)  re-onboard the GitLab users (part of gitlab-up); rotates tokens
 make krci             # install KubeRocketCI (edp-install)
 make gitlab-integrate # (post-krci) wire GitLab to KubeRocketCI
 make argocd-integrate # (post-krci) wire Argo CD to KubeRocketCI
@@ -309,6 +317,9 @@ manifests/sample-gitlabci-codebase.yaml # GitLab CI: ciTool=gitlab Codebase + br
 manifests/gitlab-ci-java-maven-configmap.yaml # GitLab CI: injected .gitlab-ci.yml template (mirrored component)
 scripts/e2e.sh                          # full e2e: MR -> review -> merge -> build -> deploy
 scripts/gitlab-up.sh                    # (pre-krci) deploy GitLab + creds/secrets + CoreDNS
+scripts/gitlab-users.sh                 # GitLab users: Administrator profile, krci-ci -> ci-gitlab
+scripts/lib/gitlab.sh                   # GitLab helpers: gl_rails, onboard_gitlab_user, apply_secret
+scripts/gitlab-rails/*.rb               # gitlab-rails runner scripts (users, group, deploy tokens, runner)
 scripts/gitlab-integrate.sh             # (post-krci) SSH known-hosts pin + CA trust + task patch + GitOps repo
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script
 scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts + ci-argocd + deploy patch

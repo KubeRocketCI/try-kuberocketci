@@ -29,6 +29,7 @@ EL_HOST="el-${GS_NAME}-${NS}.${WILDCARD}" # deterministic EventListener ingress 
 GL_ROOT_PW="${GITLAB_ROOT_PASSWORD:-KrciLocal_2026!}"
 KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+. "$HERE/scripts/lib/gitlab.sh"
 
 ensure_coredns_rewrite() {
   local host="$1" target="$2"
@@ -80,6 +81,15 @@ ensure_trusted_certs() {
     gitlab-ctl reconfigure >/tmp/trusted-certs-reconfigure.log 2>&1 \
       || { echo "FAIL gitlab-ctl reconfigure:" >&2; tail -20 /tmp/trusted-certs-reconfigure.log >&2; exit 1; }
     echo "    trusted certs applied (reconfigured)"'
+}
+
+# mint_group_deploy_token NAME SCOPES SECRET...: new token of group deploy token NAME on stdout;
+# empty when every SECRET exists in ns $NS and NAME is still active (copies such as per-stage regcred stay valid).
+mint_group_deploy_token() {
+  local name="$1" scopes="$2" keep=true s res; shift 2
+  for s in "$@"; do $KUBECTL -n "$NS" get secret "$s" >/dev/null 2>&1 || keep=false; done
+  res="$(gl_rails deploy-token.rb group="$NS" name="$name" scopes="$scopes" keep="$keep")" || return 1
+  [ "$(printf '%s' "$res" | json_get kept)" = true ] || printf '%s' "$res" | json_get token
 }
 
 if [ "${GITLAB_TRUST_ONLY:-}" = 1 ]; then
@@ -167,63 +177,20 @@ echo "==> Tuning instance settings (allow local webhooks; disable Auto DevOps)"
 #   that sits "stuck" without runners, next to the only status KRCI reads: the "Review
 #   Pipeline" external commit status from gitlab-set-status. New projects inherit the
 #   instance default; existing ones too, unless explicitly toggled.
-$KUBECTL -n $GL_NS exec "$POD" -- gitlab-rails runner '
-s = ApplicationSetting.current
-s.update!(allow_local_requests_from_web_hooks_and_services: true, auto_devops_enabled: false)' >/dev/null 2>&1 || \
-  echo "    (warn) could not update instance settings; set them in Admin -> Settings"
+gl_rails instance-settings.rb >/dev/null
 
 echo "==> Provisioning the '$NS' group (Codebases live under it, not root's namespace)"
-$KUBECTL -n $GL_NS exec "$POD" -- gitlab-rails runner "
-root = User.find_by_username('root')
-unless Group.find_by_full_path('$NS')
-  Groups::CreateService.new(root, name: '$NS', path: '$NS', visibility_level: Gitlab::VisibilityLevel::PRIVATE).execute
-end
-g = Group.find_by_full_path('$NS')
-puts \"group $NS: id=#{g&.id} persisted=#{g&.persisted?}\"" 2>&1 | grep -iE "group $NS:" || \
-  echo "    (warn) could not provision group '$NS'"
+GROUP_JSON="$(gl_rails group.rb path="$NS")"
+echo "    group $NS: id=$(printf '%s' "$GROUP_JSON" | json_get id)"
 
-echo "==> Creating a personal access token for 'root' (idempotent: revokes old 'krci' tokens)"
-TOKEN="$($KUBECTL -n $GL_NS exec "$POD" -- gitlab-rails runner '
-u = User.find_by_username("root")
-u.personal_access_tokens.where(name: "krci").update_all(revoked: true)
-t = u.personal_access_tokens.create!(scopes: ["api","read_repository","write_repository"], name: "krci", expires_at: 365.days.from_now)
-t.set_token(t.token); t.save!
-puts t.token' 2>/dev/null | tail -1)"
-echo "    PAT: ${TOKEN:0:6}… (stored in secret)"
+CTX="$CTX" NS="$NS" bash "$HERE/scripts/gitlab-users.sh"
 
-echo "==> Generating an SSH key for KubeRocketCI <-> GitLab (idempotent: replaces old 'krci' key)"
-TMPKEY="$(mktemp -u)"
-ssh-keygen -t ed25519 -N "" -f "$TMPKEY" -C "krci@local" >/dev/null
-$KUBECTL -n $GL_NS exec -i "$POD" -- gitlab-rails runner "
-u = User.find_by_username('root')
-u.keys.where(title: 'krci').destroy_all
-u.keys.create!(title: 'krci', key: '$(cat "$TMPKEY".pub)')" >/dev/null 2>&1 || true
-
-WEBHOOK_SECRET="$(openssl rand -hex 20)"
-echo "==> Creating git credentials secret (ci-gitlab) in ns/$NS — referenced by edp-tekton.gitServers"
-# Keys (see `kubectl explain gitserver.spec`): token (PAT), username (overrides
-# gitUser), id_rsa (SSH key), secretString (webhook X-Gitlab-Token).
-$KUBECTL -n "$NS" create secret generic ci-gitlab \
-  --from-literal=token="$TOKEN" \
-  --from-literal=username=root \
-  --from-literal=secretString="$WEBHOOK_SECRET" \
-  --from-file=id_rsa="$TMPKEY" \
-  --dry-run=client -o yaml | $KUBECTL apply -f -
-rm -f "$TMPKEY" "$TMPKEY.pub"
-
-echo "==> Registry credentials: '$NS' group deploy token -> kaniko-docker-config (ns/$NS)"
-# KRCI uses the GitLab Container Registry (:5050). Group deploy token (read+write
-# registry) minted via the API on the pod's localhost; prior tokens are deleted first.
-DT_JSON="$($KUBECTL -n $GL_NS exec "$POD" -- bash -c "
-for id in \$(curl -sk -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens | grep -o '\"id\":[0-9]*' | grep -o '[0-9]*'); do
-  curl -sk -X DELETE -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens/\$id >/dev/null
-done
-curl -sk -X POST -H 'PRIVATE-TOKEN: $TOKEN' -H 'Content-Type: application/json' \
-  -d '{\"name\":\"krci-registry\",\"username\":\"krci-registry\",\"scopes\":[\"read_registry\",\"write_registry\"]}' \
-  https://localhost/api/v4/groups/$NS/deploy_tokens
-")"
-REG_TOKEN="$(printf '%s' "$DT_JSON" | grep -o '"token":"[^"]*"' | head -1 | sed -E 's/.*:"([^"]*)"/\1/')"
-if [ -n "$REG_TOKEN" ]; then
+echo "==> Registry credentials: '$NS' group deploy token -> kaniko-docker-config + regcred (ns/$NS)"
+# KRCI uses the GitLab Container Registry (:5050).
+REG_TOKEN="$(mint_group_deploy_token krci-registry read_registry,write_registry kaniko-docker-config regcred)"
+if [ -z "$REG_TOKEN" ]; then
+  echo "    deploy token krci-registry active; kaniko-docker-config + regcred kept"
+else
   $KUBECTL -n "$NS" create secret docker-registry kaniko-docker-config \
     --docker-server="${GL_HOST}:5050" --docker-username=krci-registry --docker-password="$REG_TOKEN" \
     --dry-run=client -o yaml | $KUBECTL apply -f -
@@ -234,36 +201,23 @@ if [ -n "$REG_TOKEN" ]; then
   $KUBECTL -n "$NS" create secret docker-registry regcred \
     --docker-server="${GL_HOST}:5050" --docker-username=krci-registry --docker-password="$REG_TOKEN" \
     --dry-run=client -o yaml | $KUBECTL apply -f -
-else
-  echo "    (warn) could not mint registry deploy token; create kaniko-docker-config/regcred manually"
 fi
 
 echo "==> Package registry: '$NS' group deploy token -> ci-nexus (ns/$NS)"
 # The edp-tekton maven/npm/python build tasks read secret 'ci-nexus' (keys
 # username/password/url); with no Nexus here it points at GitLab's Package Registry.
-# Separate group deploy token with package scopes (krci-registry above is
-# container-registry only). Only prior 'krci-packages' tokens are deleted here; the
-# krci-registry block above deletes all, and its fresh token must survive.
-PKG_JSON="$($KUBECTL -n $GL_NS exec "$POD" -- bash -c "
-for id in \$(curl -sk -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens | grep -o '\"id\":[0-9]*' | grep -o '[0-9]*'); do
-  curl -sk -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens/\$id | grep -q '\"name\":\"krci-packages\"' \
-    && curl -sk -X DELETE -H 'PRIVATE-TOKEN: $TOKEN' https://localhost/api/v4/groups/$NS/deploy_tokens/\$id >/dev/null
-done
-curl -sk -X POST -H 'PRIVATE-TOKEN: $TOKEN' -H 'Content-Type: application/json' \
-  -d '{\"name\":\"krci-packages\",\"username\":\"krci-packages\",\"scopes\":[\"read_package_registry\",\"write_package_registry\"]}' \
-  https://localhost/api/v4/groups/$NS/deploy_tokens
-")"
-PKG_TOKEN="$(printf '%s' "$PKG_JSON" | grep -o '"token":"[^"]*"' | head -1 | sed -E 's/.*:"([^"]*)"/\1/')"
-if [ -n "$PKG_TOKEN" ]; then
-  $KUBECTL -n "$NS" create secret generic ci-nexus \
-    --from-literal=username=krci-packages \
-    --from-literal=password="$PKG_TOKEN" \
-    --from-literal=url="https://${GL_HOST}" \
-    --dry-run=client -o yaml | $KUBECTL apply -f -
+# Separate group deploy token with package scopes (krci-registry is container-registry only).
+PKG_TOKEN="$(mint_group_deploy_token krci-packages read_package_registry,write_package_registry ci-nexus)"
+if [ -z "$PKG_TOKEN" ]; then
+  echo "    deploy token krci-packages active; ci-nexus kept"
+else
+  mkdir "$GL_TMP/ci-nexus"
+  printf 'krci-packages' >"$GL_TMP/ci-nexus/username"
+  printf '%s' "$PKG_TOKEN" >"$GL_TMP/ci-nexus/password"
+  printf 'https://%s' "$GL_HOST" >"$GL_TMP/ci-nexus/url"
+  apply_secret "$NS" ci-nexus "$GL_TMP/ci-nexus"
   $KUBECTL -n "$NS" label secret ci-nexus \
     app.edp.epam.com/secret-type=nexus app.edp.epam.com/integration-secret=true --overwrite >/dev/null
-else
-  echo "    (warn) could not mint package deploy token; create secret ci-nexus manually"
 fi
 
 echo "==> Teaching the kind node's containerd to pull from the GitLab registry"
@@ -303,7 +257,8 @@ rm -f /tmp/gitlab-ca.crt
 echo ""
 echo "==> gitlab-up done."
 echo "    GitLab UI : https://$GL_HOST   (self-signed cert)"
-echo "    User      : root"
+echo "    User      : root (Administrator)"
 echo "    Password  : $GL_ROOT_PW   (local only — also shown by 'make status')"
+echo "    CI user   : krci-ci (KRCI CI/CD; token + SSH key in secret $NS/ci-gitlab)"
 echo "    Next: 'make krci' renders the GitServer/EventListener/Ingress from values,"
 echo "          then 'make gitlab-integrate' applies the operator CA + task fixes + GitOps repo."

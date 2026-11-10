@@ -46,6 +46,13 @@ The load-bearing details:
   same value as the webhook token in GitLab. There is **no** per-EventListener
   secret.
 
+- **A dedicated CI/CD user, not root.** `ci-gitlab` belongs to user `krci-ci`
+  (**KRCI CI/CD**) with the Git Server prerequisites: Maintainer on group `krci`,
+  SSH key `krci`, personal access token `krci` with scope `api`. Root
+  (**Administrator**) is the UI login and runs bootstrap through `gitlab-rails`
+  (instance settings, group `krci`, group deploy tokens, the instance runner).
+  See [GitLab users](#gitlab-users).
+
 - **HTTPS is mandatory.** The operator's GitLab REST client always uses `https://`
   (the `GitServer` CRD exposes only `httpsPort`). HTTP-only GitLab fails with
   *"server gave HTTP response to HTTPS client."* GitLab therefore serves TLS with a
@@ -130,3 +137,27 @@ each `make krci` (see [architecture.md](architecture.md#the-tekton-task-patches-
 | `scripts/gitlab-integrate.sh` | Post-KRCI: SSH known-hosts pin (snapshot operator) + CA trust + task patch + GitOps repo |
 | `scripts/gitlab-set-status.py` | Corrected `gitlab-set-status` task script |
 | `values/edp-install.yaml` | `edp-tekton.gitServers.gitlab`, registry, kaniko CA |
+
+## GitLab users
+
+Every GitLab bootstrap step runs a script from `scripts/gitlab-rails/` through
+`gl_rails` (`scripts/lib/gitlab.sh`):
+
+- Parameters go in as `KEY=VALUE`, exposed as env `GR_<KEY>`. `@PATH` uploads a local
+  file.
+- The result comes back as one JSON line. Errors print the Ruby message and stop the
+  script.
+
+`onboard_gitlab_user` wraps `user.rb`: create the user, set name and avatar, set group
+access, replace the SSH key, rotate the token. It prints the new token. The caller shapes
+its own Secret with `apply_secret NS NAME DIR` (one key per file; the namespace must
+exist).
+
+| User | Owner | Secret |
+|------|-------|--------|
+| `root` (Administrator) | `scripts/gitlab-users.sh` (name, avatar) | — |
+| `krci-ci` (KRCI CI/CD) | `scripts/gitlab-users.sh` | `krci/ci-gitlab` |
+
+Add a user: one `onboard_gitlab_user` call in the script of the component that owns it,
+then `apply_secret`. Re-runs rotate tokens; `ci-gitlab` keeps its SSH key and webhook
+secret.

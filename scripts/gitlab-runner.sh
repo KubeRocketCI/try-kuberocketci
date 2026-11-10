@@ -7,15 +7,14 @@
 #
 # Steps (idempotent):
 #   1. namespace + GitLab CA secret the runner trusts (from secret gitlab-tls),
-#   2. mint a GitLab 17.x runner AUTH token (POST /api/v4/user/runners,
-#      runner_type=instance_type) using the root PAT in secret ci-gitlab,
+#   2. mint a GitLab 17.x runner AUTH token (instance runner, created as root via
+#      scripts/gitlab-rails/runner-token.rb),
 #   3. helm install gitlab/gitlab-runner with that token (values/gitlab-runner.yaml),
 #   4. wait for the runner pod Ready and the runner to report online.
 # No QEMU/binfmt: the pipeline builds native arm64 (docs/gitlab-ci.md).
 set -euo pipefail
 
 CTX="${CTX:-kind-krci}"
-NS="${NS:-krci}"
 GL_NS="gitlab"
 RUNNER_NS="${RUNNER_NS:-gitlab-runner}"
 WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
@@ -25,13 +24,8 @@ KUBECTL="kubectl --context $CTX"
 HELM="helm --kube-context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
-GLPOD="$($KUBECTL -n $GL_NS get pod -l app=gitlab -o jsonpath='{.items[0].metadata.name}')"
-PAT="$($KUBECTL -n $NS get secret ci-gitlab -o jsonpath='{.data.token}' | base64 -d)"
-
-# GitLab REST call from inside the gitlab pod (self-signed https://localhost).
-gl_api() { local m="$1" p="$2" b="${3:-}"
-  if [ -n "$b" ]; then $KUBECTL -n $GL_NS exec "$GLPOD" -- curl -sk -X "$m" -H "PRIVATE-TOKEN: $PAT" -H 'Content-Type: application/json' -d "$b" "https://localhost/api/v4/$p"
-  else $KUBECTL -n $GL_NS exec "$GLPOD" -- curl -sk -X "$m" -H "PRIVATE-TOKEN: $PAT" "https://localhost/api/v4/$p"; fi; }
+RUNNER_DESC="krci-kubernetes"
+. "$HERE/scripts/lib/gitlab.sh"
 
 echo "==> Namespace $RUNNER_NS + GitLab CA secret (gitlab-runner-certs)"
 $KUBECTL get ns "$RUNNER_NS" >/dev/null 2>&1 || $KUBECTL create ns "$RUNNER_NS"
@@ -45,18 +39,8 @@ rm -f /tmp/gitlab-runner-ca.crt
 
 echo "==> Minting a runner authentication token (instance runner; idempotent)"
 # GitLab 17.x has no registration tokens: create a runner object, use its auth token
-# (glrt-…). Prior 'krci-kubernetes' instance runners are deleted first (re-run safe).
-# run_untagged=true: the pipeline's jobs are untagged. locked=false: any project may use it.
-for id in $(gl_api GET "runners/all?type=instance_type" | python3 -c 'import json,sys
-try: d=json.load(sys.stdin)
-except Exception: d=[]
-print(" ".join(str(r["id"]) for r in d if r.get("description")=="krci-kubernetes"))'); do
-  gl_api DELETE "runners/$id" >/dev/null 2>&1 || true
-done
-RUNNER_TOKEN="$(gl_api POST "user/runners" \
-  '{"runner_type":"instance_type","description":"krci-kubernetes","run_untagged":true,"locked":false,"tag_list":[]}' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')"
-[ -n "$RUNNER_TOKEN" ] || { echo "!! could not mint runner token" >&2; exit 1; }
+# (glrt-…). Prior '$RUNNER_DESC' instance runners are deleted first (re-run safe).
+RUNNER_TOKEN="$(gl_rails runner-token.rb description="$RUNNER_DESC" | json_get token)"
 echo "    runner token: ${RUNNER_TOKEN:0:8}…"
 
 echo "==> Installing gitlab/gitlab-runner (chart $CHART_VERSION)"
@@ -73,19 +57,11 @@ $HELM upgrade --install gitlab-runner gitlab/gitlab-runner \
 # native arm64. See docs/gitlab-ci.md.
 
 echo "==> Waiting for the runner to report online"
-ONLINE=""
-for _ in $(seq 1 30); do
-  ONLINE="$(gl_api GET "runners/all?type=instance_type" | python3 -c 'import json,sys
-try: d=json.load(sys.stdin)
-except Exception: d=[]
-print("yes" if any(r.get("description")=="krci-kubernetes" and r.get("online") for r in d) else "")')"
-  [ -n "$ONLINE" ] && break
-  sleep 5
-done
+ONLINE="$(gl_rails runner-online.rb description="$RUNNER_DESC" timeout_seconds=150 | json_get online)"
 
 echo ""
 echo "==> gitlab-runner done."
 $KUBECTL -n "$RUNNER_NS" get pods
-[ -n "$ONLINE" ] && echo "    Runner 'krci-kubernetes' is ONLINE." || \
+[ "$ONLINE" = true ] && echo "    Runner '$RUNNER_DESC' is ONLINE." || \
   echo "    (warn) runner not yet online — check: $KUBECTL -n $RUNNER_NS logs deploy/gitlab-runner"
 echo "    Next: onboarding the app (mirror the CI component + Codebase)…"
