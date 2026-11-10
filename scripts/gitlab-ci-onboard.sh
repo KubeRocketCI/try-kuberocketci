@@ -12,7 +12,7 @@
 #      own .gitlab-ci.yml (the codebase-operator injects one) and minus templates/ (the
 #      app includes the mirrored component).
 #   3. set the krci-group CI/CD variables the pipeline needs (SONAR_HOST_URL/TOKEN,
-#      GITLAB_ACCESS_TOKEN).
+#      GITLAB_ACCESS_TOKEN, GITLAB_REGISTRY_CA), as root via gl_rails (Owner only).
 #   4. apply the gitlab-ci-java-maven ConfigMap + the Codebase (ciTool=gitlab) and wait
 #      for the operator to push .gitlab-ci.yml.
 set -euo pipefail
@@ -24,6 +24,7 @@ WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 GL_HOST="gitlab.${WILDCARD}"
 KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+. "$HERE/scripts/lib/gitlab.sh"
 
 COMPONENT_PATH="kuberocketci/ci-java17-mvn"
 COMPONENT_REF="0.1.1"
@@ -57,14 +58,11 @@ ensure_project() { local group_id="$1" name="$2" vis="$3" path="$4"
   local id; id="$(api GET "projects/$(enc "$path")" | jqid)"
   [ -n "$id" ] && { echo "$id"; return; }
   api POST "projects" "$(printf '{"name":"%s","namespace_id":%s,"visibility":"%s","initialize_with_readme":false}' "$name" "$group_id" "$vis")" | jqid; }
-set_group_var() { local gid="$1" key="$2" val="$3" type="${4:-env_var}"
-  api DELETE "groups/$gid/variables/$key" >/dev/null 2>&1 || true
-  # --data-urlencode: multi-line values (the CA PEM) survive intact.
-  curl -sk -X POST -H "PRIVATE-TOKEN: $PAT" \
-    --data-urlencode "key=$key" --data-urlencode "value=$val" \
-    --data-urlencode "variable_type=$type" \
-    --data-urlencode "protected=false" --data-urlencode "masked=false" \
-    "$API/groups/$gid/variables" >/dev/null; }
+# Group CI/CD variables require Owner: set as root through gl_rails. Values go through files.
+set_group_var() { local key="$1" val="$2" type="${3:-env_var}"
+  printf '%s' "$val" >"$GL_TMP/$key"
+  gl_rails group-variable.rb group="$APP_GROUP" key="$key" value_file=@"$GL_TMP/$key" variable_type="$type" >/dev/null
+}
 
 # Populate a project's main branch from a directory via the commits API (create-or-update
 # per file, base64 content, preserve the executable bit e.g. mvnw). Idempotent.
@@ -108,7 +106,7 @@ print(f"    seeded {len(actions)} files -> {os.environ['PROJECT_PATH']}")
 PY
 }
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$GL_TMP/work"; mkdir "$TMP"
 
 # ── 1. mirror the component (public, so the app's CI job token can include it) ──
 echo "==> Mirroring $COMPONENT_PATH @$COMPONENT_REF into the local GitLab (with local-registry patch)"
@@ -226,11 +224,11 @@ echo "    app seeded: https://${GL_HOST}/${APP_GROUP}/${APP}"
 echo "==> Setting $APP_GROUP-group CI/CD variables (sonar + access token + registry CA)"
 SONAR_TOKEN="$($KUBECTL -n $NS get secret ci-sonarqube -o jsonpath='{.data.token}' | base64 -d)"
 GL_CA="$($KUBECTL -n $GL_NS get secret gitlab-tls -o jsonpath='{.data.tls\.crt}' | base64 -d)"
-set_group_var "$AGID" SONAR_HOST_URL "http://sonar.sonar:9000"
-set_group_var "$AGID" SONAR_TOKEN "$SONAR_TOKEN"
-set_group_var "$AGID" GITLAB_ACCESS_TOKEN "$PAT"
+set_group_var SONAR_HOST_URL "http://sonar.sonar:9000"
+set_group_var SONAR_TOKEN "$SONAR_TOKEN"
+set_group_var GITLAB_ACCESS_TOKEN "$PAT"
 # FILE var: GitLab self-signed CA, so buildkit can trust the registry + jwt/auth host.
-set_group_var "$AGID" GITLAB_REGISTRY_CA "$GL_CA" file
+set_group_var GITLAB_REGISTRY_CA "$GL_CA" file
 echo "    SONAR_HOST_URL, SONAR_TOKEN, GITLAB_ACCESS_TOKEN, GITLAB_REGISTRY_CA(file) set on group $APP_GROUP"
 
 # ── 4. apply the template ConfigMap + the Codebase; the operator injects .gitlab-ci.yml ──
