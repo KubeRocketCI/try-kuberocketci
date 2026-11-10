@@ -1,0 +1,47 @@
+# Egress gateway upstream TLS: image roots + an extra CA (ConfigMap ate-system/egress-upstream-ca,
+# key ca.crt) over /etc/ssl/certs/ca-certificates.crt of the envoy container.
+# Partial Deployment for server-side apply under its own field manager; ate-setup owns the rest.
+# Upstream v1.0.0 pattern: hack/setup-e2e-egress-tls-kind.sh. scripts/substrate-integrate.sh fills
+# @IMAGE@ (the envoy image: has sh and cat) and @HASH@ (sha256 of the CA: rollout on a CA change only).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atenet-egress
+  namespace: ate-system
+spec:
+  template:
+    metadata:
+      annotations:
+        krci.dev/egress-upstream-ca-sha256: "@HASH@"
+    spec:
+      initContainers:
+        - name: upstream-roots
+          image: "@IMAGE@"
+          command:
+            - sh
+            - -ec
+            - cat /etc/ssl/certs/ca-certificates.crt /run/egress-upstream-ca/ca.crt > /run/upstream-roots/ca-certificates.crt
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: egress-upstream-ca
+              mountPath: /run/egress-upstream-ca
+              readOnly: true
+            - name: upstream-roots
+              mountPath: /run/upstream-roots
+      containers:
+        - name: envoy
+          volumeMounts:
+            - name: upstream-roots
+              mountPath: /etc/ssl/certs/ca-certificates.crt
+              subPath: ca-certificates.crt
+              readOnly: true
+      volumes:
+        - name: egress-upstream-ca
+          configMap:
+            name: egress-upstream-ca
+        - name: upstream-roots
+          emptyDir: {}
