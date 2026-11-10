@@ -12,6 +12,7 @@ user = User.find_by_username(username)
 unless user
   pw = "#{SecureRandom.base64(24)}aA1!"
   res = Users::CreateService.new(root_user, name: opt(:name) || username, username: username,
+    organization_id: organization.id,
     email: "#{username}@example.invalid", password: pw, password_confirmation: pw,
     skip_confirmation: true).execute
   user = record(res, :user)
@@ -42,15 +43,15 @@ if opt(:ssh_title)
   key = user.keys.find_by(title: opt(:ssh_title))
   unless key && key.key.strip == pub
     key&.destroy!
-    user.keys.create!(title: opt(:ssh_title), key: pub)
+    user.keys.create!(with_organization(Key, title: opt(:ssh_title), key: pub))
   end
 end
 
 token = nil
 if opt(:token_name)
   user.personal_access_tokens.active.where(name: opt(:token_name)).update_all(revoked: true)
-  token = user.personal_access_tokens.create!(name: opt(:token_name), scopes: list(:scopes),
-    expires_at: Integer(arg(:expires_days)).days.from_now.to_date)
+  token = user.personal_access_tokens.create!(with_organization(PersonalAccessToken, name: opt(:token_name),
+    scopes: list(:scopes), expires_at: Integer(arg(:expires_days)).days.from_now.to_date))
   abort("token #{opt(:token_name)} for #{username} is empty") if token.token.to_s.empty?
 end
 

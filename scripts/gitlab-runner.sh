@@ -7,7 +7,7 @@
 #
 # Steps (idempotent):
 #   1. namespace + GitLab CA secret the runner trusts (from secret gitlab-tls),
-#   2. mint a GitLab 17.x runner AUTH token (instance runner, created as root via
+#   2. mint a runner AUTH token (instance runner, created as root via
 #      scripts/gitlab-rails/runner-token.rb),
 #   3. helm install gitlab/gitlab-runner with that token (values/gitlab-runner.yaml),
 #   4. wait for the runner pod Ready and the runner to report online.
@@ -19,7 +19,7 @@ GL_NS="gitlab"
 RUNNER_NS="${RUNNER_NS:-gitlab-runner}"
 WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 GL_HOST="gitlab.${WILDCARD}"
-CHART_VERSION="${GITLAB_RUNNER_CHART_VERSION:-0.70.5}"
+CHART_VERSION="${GITLAB_RUNNER_CHART_VERSION:-0.94.3}"
 KUBECTL="kubectl --context $CTX"
 HELM="helm --kube-context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,7 +38,7 @@ $KUBECTL -n "$RUNNER_NS" create secret generic gitlab-runner-certs \
 rm -f /tmp/gitlab-runner-ca.crt
 
 echo "==> Minting a runner authentication token (instance runner; idempotent)"
-# GitLab 17.x has no registration tokens: create a runner object, use its auth token
+# Registration tokens are disabled: create a runner object, use its auth token
 # (glrt-…). Prior '$RUNNER_DESC' instance runners are deleted first (re-run safe).
 RUNNER_TOKEN="$(gl_rails runner-token.rb description="$RUNNER_DESC" | json_get token)"
 echo "    runner token: ${RUNNER_TOKEN:0:8}…"
@@ -53,7 +53,7 @@ $HELM upgrade --install gitlab-runner gitlab/gitlab-runner \
   --wait --timeout 300s
 
 # Never add `tonistiigi/binfmt --install amd64` here: it replaces Rosetta with
-# qemu-x86_64 in the shared VM kernel and crashes GitLab's gitaly. The pipeline builds
+# qemu-x86_64 in the shared VM kernel and crashes emulated Go binaries. The pipeline builds
 # native arm64. See docs/gitlab-ci.md.
 
 echo "==> Waiting for the runner to report online"

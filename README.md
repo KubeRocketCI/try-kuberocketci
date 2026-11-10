@@ -86,7 +86,7 @@ reproduce issues, or develop integrations against it.
   **12 GB+**).
 - `kind` ≥ 0.32, `helm`, `kubectl` on `PATH` (`make tools` installs `kind` via brew).
 - macOS (Apple Silicon or Intel) or Linux. On Apple Silicon, amd64-only images
-  (GitLab, sonar-operator) run under Docker Desktop's Rosetta.
+  (sonar-operator) run under Docker Desktop's Rosetta.
 
 ## Quick start
 
@@ -163,7 +163,7 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
 | Run storage  | Tekton Results (+ minimal Postgres)        | v0.20.0                         | tekton-pipelines |
 | CD engine    | Argo CD (single instance)                  | chart 10.9.2 / v3.5.3           | argocd           |
 | Code quality | SonarQube (+ own Postgres, sonar-operator) | chart 2025.3.1 / 25.5-community | sonar            |
-| SCM          | GitLab CE (+ Container Registry)           | 17.5.1-ce                       | gitlab           |
+| SCM          | GitLab CE (+ Container Registry)           | 19.5.3-ce                       | gitlab           |
 
 KubeRocketCI core pods (ns `krci`): `cd-pipeline-operator`, `codebase-operator`,
 `gitfusion`, `tekton-cache`, `tekton-interceptor`, `krci-portal`. The Portal serves
@@ -348,8 +348,8 @@ About **18–20 minutes** for `make testbed` and **~12 minutes** for `make e2e`,
 Docker Desktop with **12 GB+ RAM** allocated for the full bed.
 
 **Does it work on Apple Silicon (arm64)?**
-Yes. A few images are amd64-only (GitLab, sonar-operator) and run under
-Docker Desktop's Rosetta emulation; everything else is multi-arch.
+Yes. amd64-only images (sonar-operator) run under Docker Desktop's Rosetta
+emulation; everything else is multi-arch.
 
 **Can I install just one component?**
 Yes — every capability target (`make sonar`, `make argocd`, `make prometheus`, …)

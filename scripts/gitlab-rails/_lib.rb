@@ -23,6 +23,16 @@ def root_user
   User.find_by_username('root') || abort('user root not found')
 end
 
+# The testbed instance has one organization. Top-level groups, users and
+# organization-sharded records (organization_id column) require it.
+def organization
+  @organization ||= Organizations::Organization.order(:id).first || abort('no organization found')
+end
+
+def with_organization(model, attrs)
+  model.column_names.include?('organization_id') ? attrs.merge(organization_id: organization.id) : attrs
+end
+
 def group!(path)
   Group.find_by_full_path(path) || abort("group #{path} not found")
 end

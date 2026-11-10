@@ -57,9 +57,9 @@ so the component's branch/MR `sonar` analysis works unchanged.
 
 KRCI does **not** bundle a runner. `make gitlab-ci`'s first half
 ([`scripts/gitlab-runner.sh`](../scripts/gitlab-runner.sh)) installs the official
-`gitlab/gitlab-runner` chart (Kubernetes executor, appVersion 17.5.x to match GitLab CE
-17.5), registered with a GitLab 17.x **runner authentication token** minted via
-`POST /api/v4/user/runners`. Notable local settings
+`gitlab/gitlab-runner` chart (Kubernetes executor, appVersion 19.5.x to match GitLab CE
+19.5), registered with a **runner authentication token** minted as root via
+`scripts/gitlab-rails/runner-token.rb`. Notable local settings
 ([`values/gitlab-runner.yaml`](../values/gitlab-runner.yaml)):
 
 - **Native arm64 helper pinned** — the executor otherwise auto-selects the **x86_64**
@@ -69,15 +69,12 @@ KRCI does **not** bundle a runner. `make gitlab-ci`'s first half
   GitLab over HTTPS.
 
 > ### Do NOT install QEMU binfmt
-> On Apple Silicon, Docker Desktop runs amd64 containers (incl. GitLab CE) under
-> **Rosetta**, which emulates them correctly. Running `tonistiigi/binfmt --install amd64`
-> **replaces Rosetta with `qemu-x86_64`** in the shared Docker-VM kernel — and QEMU
-> user-mode mis-emulates Go's tagged pointers (`fatal error: lfstack.push`). Under QEMU,
-> GitLab's gitaly crashes on every git push/clone/`update-ref`, MRs hang in "preparing",
-> the x86_64 runner helper crashes, and a fresh GitLab won't even boot (`qemu: uncaught
-> target signal 11` during reconfigure). The binfmt registration lives in the VM kernel,
-> so it survives `make down`. **The runner script deliberately does not install it.** If
-> something already did, remove the QEMU handler so Rosetta takes over again:
+> On Apple Silicon, Docker Desktop runs amd64 containers under **Rosetta**.
+> `tonistiigi/binfmt --install amd64` **replaces Rosetta with `qemu-x86_64`** in the
+> shared Docker-VM kernel. QEMU user-mode mis-emulates Go's tagged pointers: emulated Go
+> binaries (e.g. the x86_64 runner helper) fail with `fatal error: lfstack.push`. The
+> registration lives in the VM kernel and survives `make down`. The runner script does
+> not install it. Remove an installed QEMU handler:
 > ```bash
 > docker run --privileged --rm -v /proc/sys/fs/binfmt_misc:/b alpine:3.21 \
 >   sh -c 'for n in qemu-x86_64 x86_64; do grep -q qemu-x86_64 /b/$n 2>/dev/null && echo -1 > /b/$n; done'
@@ -98,7 +95,7 @@ genuinely needs — applied to the **mirrored** component (not upstream) by
 | buildkit registry TLS | system CAs | `SSL_CERT_FILE` bundle = system CAs **+ GitLab CA** (group file var `GITLAB_REGISTRY_CA`) | registry **and its jwt/auth token host** are self-signed |
 
 Everything else — including `git-tag` (`git push`) and the operator's clone/inject/push —
-runs upstream-as-is, because gitaly is healthy under Rosetta. The Codebase also sets
+runs upstream-as-is. The Codebase also sets
 `disablePutDeployTemplates: true` so the operator doesn't overwrite the sample's
 `deploy-templates/` chart (which the `helm-lint`/`helm-docs` jobs use).
 

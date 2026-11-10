@@ -51,7 +51,7 @@ spec:
     spec:
       containers:
         - name: gitlab
-          image: gitlab/gitlab-ce:17.5.1-ce.0
+          image: gitlab/gitlab-ce:19.5.3-ce.0
           env:
             # From secret gitlab-root-password (Makefile GITLAB_ROOT_PASSWORD via
             # scripts/gitlab-up.sh). Read by initial_root_password below.
@@ -87,7 +87,7 @@ spec:
                 puma['worker_processes'] = 0
                 puma['min_threads'] = 1
                 puma['max_threads'] = 4
-                sidekiq['max_concurrency'] = 5
+                sidekiq['concurrency'] = 5
                 postgresql['shared_buffers'] = "128MB"
                 postgresql['max_worker_processes'] = 4
                 # Monitoring/exporters off.

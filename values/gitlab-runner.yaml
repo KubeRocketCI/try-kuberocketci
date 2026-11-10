@@ -1,12 +1,12 @@
 # GitLab Runner (Kubernetes executor) for the KubeRocketCI GitLab CI path.
-# Chart: gitlab/gitlab-runner 0.70.x  (runner appVersion 17.5.x — matches GitLab CE 17.5.1).
+# Chart: gitlab/gitlab-runner 0.94.x  (runner appVersion 19.5.x — matches GitLab CE 19.5.3).
 #
 # KubeRocketCI does NOT bundle a runner: with Codebase spec.ciTool=gitlab the
 # codebase-operator skips the Tekton EventListener and instead pushes a .gitlab-ci.yml,
 # so the pipeline runs as GitLab CI jobs — which need a registered runner to execute.
-# scripts/gitlab-runner.sh mints a GitLab 17.x runner *authentication* token
-# (POST /api/v4/user/runners, runner_type=instance_type) and passes it via --set
-# runnerToken, so this file carries no token.
+# scripts/gitlab-runner.sh mints a runner *authentication* token (instance runner, created
+# as root via scripts/gitlab-rails/runner-token.rb) and passes it via --set runnerToken,
+# so this file carries no token.
 #
 # Self-signed GitLab: the runner manager (registration + job artifacts/API) and the
 # job pods (git clone) reach https://gitlab.127.0.0.1.nip.io, so they must trust the
@@ -46,12 +46,9 @@ runners:
       [runners.kubernetes]
         namespace = "{{.Release.Namespace}}"
         image = "alpine:3.21"
-        # Pin the NATIVE arm64 helper — the executor otherwise auto-picks the x86_64
-        # helper, which would run emulated. (Under Rosetta it works but is slower; under
-        # QEMU it crashes outright, "fatal error: lfstack.push" — another reason we never
-        # install QEMU binfmt; see docs/gitlab-ci.md.) The tag tracks the runner version =
-        # chart appVersion (0.70.5 -> 17.5.5).
-        helper_image = "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:arm64-v17.5.5"
+        # Native arm64 helper; the executor otherwise picks the x86_64 helper (emulated).
+        # Tag = runner version = chart appVersion (0.94.3 -> 19.5.3).
+        helper_image = "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:arm64-v19.5.3"
         # privileged build containers: the Java pipeline's dockerbuild-verify /
         # buildkit-build jobs run moby/buildkit:rootless, which needs an unsandboxed
         # environment. privileged (the kind node allows it) is the simplest local fit.
