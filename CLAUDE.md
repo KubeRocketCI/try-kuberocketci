@@ -59,6 +59,10 @@ There is no app build/lint/unit-test step — this repo *orchestrates a cluster*
 - **Idempotent, automated scripts.** Every `scripts/*.sh` is re-runnable. Provisioning
   (groups, tokens, deploy tokens, secrets) is done via the GitLab REST API and
   `gitlab-rails`, not manual steps. New automation should match this.
+- **GitLab bootstrap via `gl_rails`.** Ruby lives in `scripts/gitlab-rails/*.rb`, run
+  through `gl_rails` (`scripts/lib/gitlab.sh`); no inline `gitlab-rails runner` strings.
+  GitLab users go through `onboard_gitlab_user`, owned by the component that needs them
+  (KRCI: `scripts/gitlab-users.sh`). See [docs/gitlab-integration.md](docs/gitlab-integration.md#gitlab-users).
 - **Deps-first / KRCI-last, baseline → integrate.** Install everything KRCI depends on
   before `make krci`; the `*-integrate` targets wire only what the chart can't express.
   See [docs/architecture.md](docs/architecture.md).
@@ -118,6 +122,7 @@ If `@playwright/mcp` is configured, prefer the above approach for any multi-step
 
 - **Repo layout** — everything is driven by the `Makefile` (version pins + namespace
   vars are the `?=` variables at the top, lines ~8–54):
+  - `scripts/lib/gitlab.sh` + `scripts/gitlab-rails/*.rb` — GitLab bootstrap engine.
   - `scripts/*.sh` — idempotent provisioning + validation: `*-up.sh` (deploy),
     `*-integrate.sh` (post-KRCI wiring), `e2e*.sh` (the "tests"),
     `gitlab-ci-onboard.sh` / `gitlab-runner.sh`, `gitlab-set-status.py`.
