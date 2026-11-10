@@ -9,8 +9,8 @@ Prometheus, Portal) on Docker Desktop, macOS/Apple Silicon. `make help` lists ev
 
 This is the single most important rule for this repo.
 
-- Docker Desktop runs **amd64** containers (sonar-operator, amd64-only job images) under
-  **Rosetta**.
+- Docker Desktop runs **amd64** containers (amd64-only Tekton task and CI job images)
+  under **Rosetta**.
 - **Do NOT run `tonistiigi/binfmt --install amd64`** (or any QEMU binfmt installer). It
   replaces Rosetta with `qemu-x86_64` in the shared Docker-VM kernel. QEMU user-mode
   mis-handles Go's tagged pointers: every emulated Go binary (e.g. the x86_64 GitLab

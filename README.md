@@ -85,8 +85,8 @@ reproduce issues, or develop integrations against it.
 - **Docker Desktop**, **≥ 8 GB RAM** (the full bed with GitLab + SonarQube wants
   **12 GB+**).
 - `kind` ≥ 0.32, `helm`, `kubectl` on `PATH` (`make tools` installs `kind` via brew).
-- macOS (Apple Silicon or Intel) or Linux. On Apple Silicon, amd64-only images
-  (sonar-operator) run under Docker Desktop's Rosetta.
+- macOS (Apple Silicon or Intel) or Linux. On Apple Silicon, amd64-only Tekton task
+  images run under Docker Desktop's Rosetta.
 
 ## Quick start
 
@@ -348,8 +348,8 @@ About **18–20 minutes** for `make testbed` and **~12 minutes** for `make e2e`,
 Docker Desktop with **12 GB+ RAM** allocated for the full bed.
 
 **Does it work on Apple Silicon (arm64)?**
-Yes. amd64-only images (sonar-operator) run under Docker Desktop's Rosetta
-emulation; everything else is multi-arch.
+Yes. Platform images are multi-arch. amd64-only Tekton task images (`epamedp/tekton-*`,
+`sonar-scanner-cli`, …) run under Docker Desktop's Rosetta emulation.
 
 **Can I install just one component?**
 Yes — every capability target (`make sonar`, `make argocd`, `make prometheus`, …)
