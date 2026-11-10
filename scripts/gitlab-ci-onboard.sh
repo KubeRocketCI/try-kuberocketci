@@ -66,7 +66,8 @@ set_group_var() { local key="$1" val="$2" type="${3:-env_var}"
 
 # Populate a project's main branch from a directory via the commits API (create-or-update
 # per file, base64 content, preserve the executable bit e.g. mvnw). Idempotent.
-# seed_repo PROJECT_PATH SRC_DIR COMMIT_MSG
+# seed_repo PROJECT_PATH SRC_DIR COMMIT_MSG. Seed messages carry [skip ci]: seeding (and the
+# tag on the seeded commit) starts no pipeline.
 seed_repo() {
   PROJECT_PATH="$1" SRC_DIR="$2" MSG="$3" API_BASE="$API" TOKEN="$PAT" python3 - <<'PY'
 import os,sys,json,base64,ssl,urllib.request,urllib.parse
@@ -178,7 +179,7 @@ print("    component patched: buildkit -> local registry (native arm64) + CA bun
 sys.exit(0 if ok else 1)
 PY
 )
-seed_repo "$COMPONENT_PATH" "$TMP/comp" "Mirror of kuberocketci/ci-java17-mvn @$COMPONENT_REF (local registry patch)"
+seed_repo "$COMPONENT_PATH" "$TMP/comp" "Mirror of kuberocketci/ci-java17-mvn @$COMPONENT_REF (local registry patch) [skip ci]"
 # Recreate the version tag the ConfigMap pins (component:@0.1.1).
 api DELETE "projects/$(enc "$COMPONENT_PATH")/repository/tags/$COMPONENT_REF" >/dev/null 2>&1 || true
 api POST "projects/$(enc "$COMPONENT_PATH")/repository/tags?tag_name=${COMPONENT_REF}&ref=main" >/dev/null
@@ -217,7 +218,7 @@ EXPOSE 8080
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
 DOCKERFILE
 echo "    Dockerfile -> multi-arch eclipse-temurin:17-jre (native arm64 build)"
-seed_repo "$APP_GROUP/$APP" "$TMP/app" "KubeRocketCI GitLab CI sample app (java17-mvn)"
+seed_repo "$APP_GROUP/$APP" "$TMP/app" "KubeRocketCI GitLab CI sample app (java17-mvn) [skip ci]"
 echo "    app seeded: https://${GL_HOST}/${APP_GROUP}/${APP}"
 
 # ── 3. group CI/CD variables the pipeline needs ──
