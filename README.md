@@ -281,7 +281,7 @@ deliberate ways. Each is documented in full — with the rationale — in
 | Area           | Deviation                                                                                                                                 |
 |----------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | Install method | `helm`/`kubectl`, not Argo CD GitOps, so each component is debuggable in isolation (versions still pinned to edp-cluster-add-ons)         |
-| Portal         | in-cluster subchart; OIDC disabled — ServiceAccount-token login only (`make token`)                                                      |
+| Portal         | in-cluster subchart; image pinned to snapshot `0.11.0-SNAPSHOT.2` (arm64); OIDC disabled — ServiceAccount-token login only (`make token`) |
 | Tekton tasks   | `gitlab-set-status` and `deploy-applicationset-cli` patched for self-signed GitLab / plaintext Argo CD, re-applied after each `make krci` |
 | Argo CD        | single instance (not HA), chart `10.9.2`, plus an apps-in-any-namespace RBAC addition the chart omits                                     |
 | SonarQube      | own minimal Postgres instead of the bundled DB / Crunchy PGO                                                                              |

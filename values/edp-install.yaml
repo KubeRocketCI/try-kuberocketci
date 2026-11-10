@@ -148,6 +148,11 @@ externalSecrets:
 krci-portal:
   enabled: true
 
+  image:
+    # Snapshot image: the chart's 0.9.0 arm64 variant crashes on better_sqlite3.
+    # name:tag@digest -> digest wins (multi-arch index). Remove when the chart ships a fixed release.
+    tag: "0.11.0-SNAPSHOT.2@sha256:112c55da1229e2f22dcb0a9cbe47d166ef3aad14b2ef40073dade258cd7a942d"
+
   configEnv:
     # No OIDC issuer in kind. An empty issuer flips the server's oidcEnabled off,
     # which hides all SSO controls and makes the login screen ServiceAccount-token
