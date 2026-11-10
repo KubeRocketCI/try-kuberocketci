@@ -53,6 +53,8 @@ SONAR_REPO_URL     ?= https://SonarSource.github.io/helm-chart-sonarqube
 SONAR_CHART_VERSION ?= 2025.3.1
 SONAR_OPERATOR_VERSION ?= 3.4.0
 SONAR_NS           ?= sonar
+# Substrate (optional): namespace of the Substrate install; secret <ns>/gitlab holds the krci-agent token.
+SUBSTRATE_NS       ?= krci-agents
 # Dependency-Track (KRCI SCA backend: `krci sca`, Portal SCA tab, the security pipeline's
 # cdxgen upload). Chart pin matches edp-cluster-add-ons clusters/core/addons/dependency-track.
 # DB: manifests/deptrack-postgres.yaml.
@@ -325,6 +327,11 @@ deptrack: ## Install Dependency-Track (chart $(DEPTRACK_CHART_VERSION)) + own Po
 .PHONY: deptrack-integrate
 deptrack-integrate: ## (post-krci, optional; re-run after make krci) Set the admin password, mint API keys, wire ci-dependency-track + the Portal, enable OSV
 	bash scripts/deptrack-integrate.sh
+
+# ---- Substrate (optional) ----------------------------------------------------
+.PHONY: substrate-integrate
+substrate-integrate: ## (post-krci, optional) GitLab user krci-agent (Developer on group krci) + secret gitlab in ns SUBSTRATE_NS (default krci-agents)
+	SUBSTRATE_NS='$(SUBSTRATE_NS)' bash scripts/substrate-integrate.sh
 
 # ---- access -----------------------------------------------------------------
 .PHONY: token
