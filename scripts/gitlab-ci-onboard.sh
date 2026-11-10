@@ -117,11 +117,11 @@ ensure_project "$KGID" ci-java17-mvn public "$COMPONENT_PATH" >/dev/null
 $GITC clone --quiet --depth 1 --branch "$COMPONENT_REF" "$UPSTREAM" "$TMP/comp"
 rm -rf "$TMP/comp/.git"
 # Local deviations in the mirrored component (see docs/gitlab-ci.md). git-tag stays
-# upstream (git push works under Rosetta):
+# upstream:
 #   build.yml/review.yml  buildkit jobs push to the in-cluster GitLab registry over the
 #                         job token and build native arm64 (no --platform amd64; QEMU
 #                         binfmt is never installed: it replaces Rosetta and crashes
-#                         GitLab's gitaly).
+#                         emulated Go binaries).
 #   common.yml .buildkit-base -> SSL_CERT_FILE bundle so buildkit trusts the self-signed
 #                         registry + its jwt/auth token host.
 ( cd "$TMP/comp"; python3 - <<'PY'
@@ -234,7 +234,7 @@ set_group_var "$AGID" GITLAB_REGISTRY_CA "$GL_CA" file
 echo "    SONAR_HOST_URL, SONAR_TOKEN, GITLAB_ACCESS_TOKEN, GITLAB_REGISTRY_CA(file) set on group $APP_GROUP"
 
 # ── 4. apply the template ConfigMap + the Codebase; the operator injects .gitlab-ci.yml ──
-# Stock ciTool=gitlab flow (gitaly healthy under Rosetta): the operator clones the seeded
+# Stock ciTool=gitlab flow: the operator clones the seeded
 # repo, injects .gitlab-ci.yml from this ConfigMap, and pushes. disablePutDeployTemplates
 # keeps the sample's chart.
 echo "==> Applying the gitlab-ci-java-maven ConfigMap + the Codebase (ciTool=gitlab)"

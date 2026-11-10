@@ -53,10 +53,11 @@ print(json.dumps(d))" \
 ensure_trusted_certs() {
   local pod want have
   pod="$($KUBECTL -n $GL_NS get pod -l app=gitlab -o jsonpath='{.items[0].metadata.name}')"
-  want="$($KUBECTL -n $GL_NS get configmap trusted-certs -o json 2>/dev/null \
-    | python3 -I -c 'import json,sys; d=json.load(sys.stdin).get("data") or {}; sys.stdout.write("".join(d[k] for k in sorted(d)))' || true)"
+  # go-template ranges over map keys in byte order; empty when the ConfigMap is absent.
+  want="$($KUBECTL -n $GL_NS get configmap trusted-certs --ignore-not-found \
+    -o go-template='{{range $k, $v := .data}}{{$v}}{{end}}')"
   for _ in $(seq 1 40); do
-    # Byte order, matching Python sorted(); ConfigMap keys contain no whitespace.
+    # Byte order, matching the go-template above; ConfigMap keys contain no whitespace.
     have="$($KUBECTL -n $GL_NS exec "$pod" -- bash -c \
       'cd /etc/gitlab-trusted-certs-src 2>/dev/null || exit 0; for f in $(ls | LC_ALL=C sort); do cat "$f"; done' || true)"
     [ "$have" = "$want" ] && break

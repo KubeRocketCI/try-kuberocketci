@@ -66,13 +66,13 @@ DEPTRACK_NS        ?= dependency-track
 # the node, whose containerd cache dies with the cluster (GitLab CE is ~3GB). Parsed from
 # the manifest: the image pin lives in one place.
 PRELOAD_IMAGES     ?= $(shell awk '/image: gitlab\/gitlab-ce/{print $$2}' manifests/gitlab.yaml)
-# LOCAL-ONLY GitLab root password, seeded on first install. GitLab 17.x rejects passwords
+# LOCAL-ONLY GitLab root password, seeded on first install. GitLab rejects passwords
 # containing the app name ("gitlab") or the username ("root") as "commonly used".
 GITLAB_ROOT_PASSWORD ?= KrciLocal_2026!
 # GitLab Runner (Kubernetes executor) for the GitLab CI path (Codebase ciTool=gitlab);
 # KubeRocketCI bundles no runner. Chart appVersion must match the GitLab CE version in
 # manifests/gitlab.yaml.
-GITLAB_RUNNER_CHART_VERSION ?= 0.70.5
+GITLAB_RUNNER_CHART_VERSION ?= 0.94.3
 # Envoy Gateway (Gateway API traffic engine; Portal Networking tab). The gateway-helm OCI
 # chart installs the Gateway API + Envoy Gateway CRDs and the controller, no GatewayClass:
 # `make envoy` applies manifests/envoy-gatewayclass.yaml. v1.9.x: Gateway API v1.6.1;
@@ -382,7 +382,7 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 .PHONY: preload
 preload: ## Load the GitLab image from the host docker cache into kind (skips the ~3GB pull)
 	@for img in $(PRELOAD_IMAGES); do \
-	  docker image inspect "$$img" >/dev/null 2>&1 || docker pull --platform linux/amd64 "$$img"; \
+	  docker image inspect "$$img" >/dev/null 2>&1 || docker pull "$$img"; \
 	  if docker exec $(CLUSTER)-control-plane ctr -n k8s.io images ls -q 2>/dev/null | grep -qF "$$img"; then \
 	    echo "  $$img already in the kind node"; \
 	  else \
