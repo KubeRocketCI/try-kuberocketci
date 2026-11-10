@@ -1,5 +1,5 @@
 # KubeRocketCI (edp-install) values for LOCAL kind testing.
-# Chart: epamedp/edp-install 3.16.0  (verified against the chart's own values.yaml)
+# Chart: epamedp/edp-install 3.16.1  (verified against the chart's own values.yaml)
 #
 # Stack that comes up with these values:
 #   codebase-operator, cd-pipeline-operator, edp-tekton (pipelines library),
@@ -141,7 +141,7 @@ externalSecrets:
   enabled: false
   manageEDPInstallSecrets: false
 
-# In-cluster Portal (edp-install subchart krci-portal 0.9.0). OIDC is disabled
+# In-cluster Portal (edp-install subchart krci-portal 0.10.0). OIDC is disabled
 # (empty issuer below), so the login screen is ServiceAccount-token only — sign in
 # with the token from `make token`. configEnv overrides only the endpoints the chart
 # placeholders don't resolve to; the rest keep chart defaults via deep merge.
@@ -149,7 +149,7 @@ krci-portal:
   enabled: true
 
   image:
-    # Snapshot image: the chart's 0.9.0 arm64 variant crashes on better_sqlite3.
+    # Snapshot image: the chart's release arm64 variant crashes on better_sqlite3.
     # name:tag@digest -> digest wins (multi-arch index). Remove when the chart ships a fixed release.
     tag: "0.11.0-SNAPSHOT.2@sha256:112c55da1229e2f22dcb0a9cbe47d166ef3aad14b2ef40073dade258cd7a942d"
 
