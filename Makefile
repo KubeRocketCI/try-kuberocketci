@@ -55,6 +55,8 @@ SONAR_OPERATOR_VERSION ?= 3.4.0
 SONAR_NS           ?= sonar
 # Substrate (optional): namespace of the Substrate install; secret <ns>/gitlab holds the krci-agent token.
 SUBSTRATE_NS       ?= krci-agents
+# Substrate release: checkout tag, image tag (ghcr.io/agent-substrate/substrate) and kubectl-ate version.
+SUBSTRATE_VERSION  ?= v1.0.0
 # Dependency-Track (KRCI SCA backend: `krci sca`, Portal SCA tab, the security pipeline's
 # cdxgen upload). Chart pin matches edp-cluster-add-ons clusters/core/addons/dependency-track.
 # DB: manifests/deptrack-postgres.yaml.
@@ -329,6 +331,10 @@ deptrack-integrate: ## (post-krci, optional; re-run after make krci) Set the adm
 	bash scripts/deptrack-integrate.sh
 
 # ---- Substrate (optional) ----------------------------------------------------
+.PHONY: substrate
+substrate: ## (optional) Install Agent Substrate $(SUBSTRATE_VERSION) from release images (values/substrate-install.yaml) + kubectl-ate; re-run after a Docker restart
+	SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' CLUSTER='$(CLUSTER)' bash scripts/substrate.sh
+
 .PHONY: substrate-integrate
 substrate-integrate: ## (post-krci, optional) GitLab user krci-agent (Developer on group krci) + secret gitlab in ns SUBSTRATE_NS (default krci-agents)
 	SUBSTRATE_NS='$(SUBSTRATE_NS)' bash scripts/substrate-integrate.sh

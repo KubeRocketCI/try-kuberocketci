@@ -1,0 +1,16 @@
+# Agent Substrate install, read by `ate-setup --config` (upstream docs/guides/operator-install.md).
+# Only values that differ from the kind profile. Version and cluster name: flags from scripts/substrate.sh.
+apiVersion: install.ate.dev/v1alpha1
+kind: SubstrateInstall
+kindCluster:
+  enabled: true
+images:
+  repo: ghcr.io/agent-substrate/substrate
+atenet:
+  egress:
+    credentialProvider: '{"name":"k8s.io"}'
+ingressAllowedSPIFFEIDs: spiffe://cluster.local/ns/ate-system/sa/atenet-client
+# No /dev/kvm in Docker Desktop: gVisor only; skips the microVM guest asset download.
+sandboxClasses: gvisor
+# First install on the loaded testbed node: pod certificates, then serial image pulls; 1m is too short.
+rolloutTimeout: 5m0s

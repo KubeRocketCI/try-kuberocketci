@@ -193,7 +193,8 @@ GitLab users (`make gitlab-users`, run by `make gitlab-up`):
 | `root`    | Administrator | instance admin       | password above (UI login)                                      |
 | `krci-ci` | KRCI CI/CD    | Maintainer on `krci` | token + SSH key in secret `krci/ci-gitlab`; no password login  |
 
-The optional `make substrate-integrate` adds `krci-agent` (**KRCI Agent**, Developer on
+The optional `make substrate` installs Agent Substrate from its release images (re-run after a
+Docker restart); `make substrate-integrate` then adds `krci-agent` (**KRCI Agent**, Developer on
 `krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`.
 
 ## Targets
@@ -327,6 +328,7 @@ scripts/gitlab-integrate.sh             # (post-krci) SSH known-hosts pin + CA t
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script
 scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts + ci-argocd + deploy patch
 scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube secret
+scripts/substrate.sh                    # (optional) Agent Substrate: release images + kubectl-ate (.cache/substrate/)
 scripts/substrate-integrate.sh          # (post-krci, optional) GitLab user krci-agent + <substrate-ns>/gitlab secret
 scripts/gitlab-runner.sh                # GitLab CI: install + register the GitLab Runner
 scripts/gitlab-ci-onboard.sh            # GitLab CI: mirror the ci-java17-mvn component + onboard the app
