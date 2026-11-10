@@ -1,0 +1,27 @@
+# Credential provider namespace policy: atespace krci-agents may resolve Secrets of namespace
+# krci-agents only. The testbed owns the whole document. The install creates the ConfigMap only
+# when absent, so make substrate keeps it (upstream docs/guides/egress-credential-injection.md).
+# The provider reads the policy at startup only: @POLICY_HASH@ (sha256 of this file) on its pod
+# template restarts it when this file changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-credential-provider-namespace-policy
+  namespace: ate-system
+data:
+  namespace-policy.yaml: |
+    policies:
+      - atespace: krci-agents
+        allowedNamespaces:
+          - krci-agents
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-credential-provider
+  namespace: ate-system
+spec:
+  template:
+    metadata:
+      annotations:
+        krci.dev/namespace-policy-sha256: "@POLICY_HASH@"

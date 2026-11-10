@@ -329,7 +329,7 @@ scripts/gitlab-set-status.py            # corrected gitlab-set-status task scrip
 scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts + ci-argocd + deploy patch
 scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube secret
 scripts/substrate.sh                    # (optional) Agent Substrate: release images + kubectl-ate (.cache/substrate/)
-scripts/substrate-integrate.sh          # (post-krci, optional) egress gateway upstream CA + GitLab user krci-agent + <substrate-ns>/gitlab secret
+scripts/substrate-integrate.sh          # (post-krci, optional) landing zone krci-agents: egress gateway CA, namespace/atespace/WorkerPool/namespace policy, GitLab user krci-agent
 scripts/gitlab-runner.sh                # GitLab CI: install + register the GitLab Runner
 scripts/gitlab-ci-onboard.sh            # GitLab CI: mirror the ci-java17-mvn component + onboard the app
 scripts/e2e-gitlabci.sh                 # GitLab CI: e2e (MR -> review -> merge -> build; not Tekton)

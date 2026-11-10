@@ -1,0 +1,30 @@
+# Landing zone for agent workloads, Kubernetes side: namespace krci-agents + its WorkerPool.
+# The atespace of the same name: scripts/substrate-integrate.sh (Substrate API object).
+# Upstream shape: demos/claude-code-multiplex/claude-code-multiplex.yaml.tmpl.
+# @WORKER_IMAGE@: ateworker-gvisor at the repo and tag of the installed atelet.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: krci-agents
+---
+apiVersion: ate.dev/v1
+kind: WorkerPool
+metadata:
+  name: workers
+  namespace: krci-agents
+  labels:
+    workload: workers
+spec:
+  replicas: 1
+  workerImage: "@WORKER_IMAGE@"
+  template:
+    # One worker holds one agent: the limits are its advertised capacity (upstream demo values).
+    resources:
+      limits:
+        cpu: "1"
+        memory: 2560Mi
+      requests:
+        cpu: 250m
+        memory: 2560Mi
+  sandboxClasses:
+    - name: gvisor

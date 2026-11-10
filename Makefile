@@ -53,8 +53,6 @@ SONAR_REPO_URL     ?= https://SonarSource.github.io/helm-chart-sonarqube
 SONAR_CHART_VERSION ?= 2025.3.1
 SONAR_OPERATOR_VERSION ?= 3.4.0
 SONAR_NS           ?= sonar
-# Substrate (optional): namespace of the Substrate install; secret <ns>/gitlab holds the krci-agent token.
-SUBSTRATE_NS       ?= krci-agents
 # Extra CA the Substrate egress gateway trusts for upstream TLS (<ns>/<configmap>, key gitlab-ca.crt); empty: none.
 SUBSTRATE_EGRESS_CA ?= krci/gitlab-ca
 # Substrate release: checkout tag, image tag (ghcr.io/agent-substrate/substrate) and kubectl-ate version.
@@ -338,8 +336,8 @@ substrate: ## (optional) Install Agent Substrate $(SUBSTRATE_VERSION) from relea
 	SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' CLUSTER='$(CLUSTER)' bash scripts/substrate.sh
 
 .PHONY: substrate-integrate
-substrate-integrate: ## (post-krci, optional; re-run after make substrate) Egress gateway trusts SUBSTRATE_EGRESS_CA + GitLab user krci-agent (Developer on group krci) + secret gitlab in ns SUBSTRATE_NS
-	SUBSTRATE_NS='$(SUBSTRATE_NS)' SUBSTRATE_EGRESS_CA='$(SUBSTRATE_EGRESS_CA)' bash scripts/substrate-integrate.sh
+substrate-integrate: ## (post-krci, optional; re-run after make substrate) Landing zone krci-agents: egress gateway trusts SUBSTRATE_EGRESS_CA, namespace + atespace + WorkerPool + namespace policy, GitLab user krci-agent (secret krci-agents/gitlab)
+	SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' SUBSTRATE_EGRESS_CA='$(SUBSTRATE_EGRESS_CA)' bash scripts/substrate-integrate.sh
 
 # ---- access -----------------------------------------------------------------
 .PHONY: token
