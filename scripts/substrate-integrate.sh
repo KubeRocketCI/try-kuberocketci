@@ -15,6 +15,10 @@
 #     replaced on every run.
 #   * secret krci-agents/gitlab: token; basic = base64("oauth2:<token>") (Authorization: Basic
 #     value for git over HTTPS).
+#   * secret krci-agents/anthropic, key api-key = the Anthropic API key (sk-ant-..., nothing else):
+#     created by you with kubectl, never by this script or from a file in the repo (upstream
+#     docs/guides/egress-credential-injection.md). Checked last; when absent, the command is
+#     printed. The same command rotates it; the credential provider reads the Secret on each request.
 set -euo pipefail
 
 CTX="${CTX:-kind-krci}"
@@ -85,3 +89,16 @@ onboard_gitlab_user username=krci-agent name="KRCI Agent" avatar=@"$HERE/assets/
   group="$NS" access=developer token_name=krci-agent scopes=api,write_repository expires_days=30 >"$DIR/token"
 printf 'oauth2:%s' "$(cat "$DIR/token")" | base64 | tr -d '\n' >"$DIR/basic"
 apply_secret "$AGENTS_NS" gitlab "$DIR"
+
+echo "==> Anthropic API key (secret $AGENTS_NS/anthropic, key api-key)"
+if $KUBECTL -n "$AGENTS_NS" get secret anthropic >/dev/null 2>&1; then
+  echo "    present"
+else
+  cat <<EOF
+    (todo) missing: agents cannot call Claude until it exists. Put your key in place of
+    <ANTHROPIC_API_KEY> and run (the same command rotates it):
+
+      $KUBECTL -n $AGENTS_NS create secret generic anthropic --from-literal=api-key=<ANTHROPIC_API_KEY> \\
+        --dry-run=client -o yaml | $KUBECTL apply -f -
+EOF
+fi

@@ -197,6 +197,18 @@ The optional `make substrate` installs Agent Substrate from its release images (
 Docker restart); `make substrate-integrate` then adds `krci-agent` (**KRCI Agent**, Developer on
 `krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`.
 
+The Anthropic API key is the one external secret: create it yourself, never in a file or the repo.
+Secret `krci-agents/anthropic`, key `api-key`, value = the key (`sk-ant-...`) and nothing else.
+Put your key in place of `<ANTHROPIC_API_KEY>`; the same command rotates it.
+`make substrate-integrate` prints it when the Secret is missing.
+
+```bash
+kubectl -n krci-agents create secret generic anthropic --from-literal=api-key=<ANTHROPIC_API_KEY> \
+  --dry-run=client -o yaml | kubectl apply -f -
+# check: prefix and length only
+kubectl -n krci-agents get secret anthropic -o jsonpath='{.data.api-key}' | base64 -d | awk '{print substr($0,1,7) "... length " length($0)}'
+```
+
 ## Targets
 
 `make help` lists everything. Build piecemeal or all at once — each capability
