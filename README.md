@@ -198,7 +198,11 @@ Docker restart); `make substrate-integrate` then adds `krci-agent` (**KRCI Agent
 `krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`. It also installs
 `krci-agent-dispatcher` (`AGENT_DISPATCHER_VERSION`, snapshot Helm repo) in `krci-agents`, with its
 hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. The agent image is
-`KRCI_AGENT_IMAGE`.
+`KRCI_AGENT_IMAGE`, pinned by digest:
+
+```bash
+make substrate-integrate KRCI_AGENT_IMAGE=<repo>:<tag>@sha256:<digest>
+```
 
 The Anthropic API key is the one external secret: create it yourself, never in a file or the repo.
 Secret `krci-agents/anthropic`, key `api-key`, value = the key (`sk-ant-...`) and nothing else.

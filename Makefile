@@ -60,9 +60,9 @@ SUBSTRATE_VERSION  ?= v1.0.0
 # krci-agent-dispatcher on the Substrate landing zone (substrate-integrate): chart version = image
 # tag (epamedp/krci-agent-dispatcher). Snapshot repo only until a stable release.
 AGENT_DISPATCHER_VERSION ?= 0.1.0-SNAPSHOT.3
-# Agent image of the issue actors (chart value agentImage); atelet pulls it from the registry.
-# Not published yet: actors cannot start until this tag is on Docker Hub.
-KRCI_AGENT_IMAGE   ?= epamedp/krci-agent-go:dev
+# Agent image of the issue actors (chart value agentImage), required by substrate-integrate:
+# <repo>[:<tag>]@sha256:<digest>.
+KRCI_AGENT_IMAGE   ?=
 # Dependency-Track (KRCI SCA backend: `krci sca`, Portal SCA tab, the security pipeline's
 # cdxgen upload). Chart pin matches edp-cluster-add-ons clusters/core/addons/dependency-track.
 # DB: manifests/deptrack-postgres.yaml.
