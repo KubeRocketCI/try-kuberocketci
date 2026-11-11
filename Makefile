@@ -347,6 +347,10 @@ substrate-integrate: repo-snapshot ## (post-krci, optional; re-run after make su
 	  AGENT_DISPATCHER_VERSION='$(AGENT_DISPATCHER_VERSION)' AGENT_DISPATCHER_REPO='$(SNAP_HELM_REPO_NAME)' \
 	  KRCI_AGENT_IMAGE='$(KRCI_AGENT_IMAGE)' WILDCARD='$(WILDCARD)' bash scripts/substrate-integrate.sh
 
+.PHONY: substrate-hook
+substrate-hook: ## (post-e2e, optional; after substrate-integrate) krci-agent-dispatcher hook on test-go-app: issue and note events, SSL verification on; test delivery
+	bash scripts/substrate-hook.sh
+
 # ---- access -----------------------------------------------------------------
 .PHONY: token
 token: ## Mint a 24h cluster-admin token for Portal login (local only)

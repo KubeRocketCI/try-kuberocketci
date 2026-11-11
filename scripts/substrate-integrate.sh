@@ -2,7 +2,7 @@
 # Optional post-KRCI Substrate integration, not part of `make testbed`: the landing zone krci-agents
 # for agent workloads and krci-agent-dispatcher on it. Requires `make substrate` and `make krci`
 # (group krci, krci/gitlab-ca, cert-manager, ingress-nginx). Re-run after `make substrate`.
-# No test project here: the project hook belongs to `make e2e-agent`.
+# No test project here: the project hook is `make substrate-hook`.
 #   * egress gateway upstream TLS: image roots + the CA in SUBSTRATE_EGRESS_CA (<ns>/<configmap>, key
 #     gitlab-ca.crt; default krci/gitlab-ca; empty: skipped). Upstream v1.0.0 has no setting for it.
 #     manifests/substrate-egress-upstream-ca.yaml, server-side apply under field manager krci-testbed.
