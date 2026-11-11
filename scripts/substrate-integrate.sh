@@ -168,7 +168,7 @@ agent_dispatcher() {
 
   $HELM upgrade --install "$DISPATCHER" "$AGENT_DISPATCHER_REPO/$DISPATCHER" --version "$AGENT_DISPATCHER_VERSION" \
     -n "$AGENTS_NS" -f "$HERE/values/agent-dispatcher.yaml" \
-    --set image.tag="$AGENT_DISPATCHER_VERSION" --set agentImage="$KRCI_AGENT_IMAGE" --set ingress.host="$DISPATCHER_HOST" \
+    --set agentImage="$KRCI_AGENT_IMAGE" --set ingress.host="$DISPATCHER_HOST" \
     --wait --timeout 5m >/dev/null
   echo "    $DISPATCHER $AGENT_DISPATCHER_VERSION ready: https://$DISPATCHER_HOST/hook (agent image $KRCI_AGENT_IMAGE)"
 }
