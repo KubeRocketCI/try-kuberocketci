@@ -59,7 +59,7 @@ SUBSTRATE_EGRESS_CA ?= krci/gitlab-ca
 SUBSTRATE_VERSION  ?= v1.0.0
 # krci-agent-dispatcher on the Substrate landing zone (substrate-integrate): chart version = image
 # tag (epamedp/krci-agent-dispatcher). Snapshot repo only until a stable release.
-AGENT_DISPATCHER_VERSION ?= 0.1.0-SNAPSHOT.7
+AGENT_DISPATCHER_VERSION ?= 0.1.0-SNAPSHOT.18
 # Agent image of the issue actors (chart value agentImage), required by substrate-integrate:
 # <repo>[:<tag>]@sha256:<digest>.
 KRCI_AGENT_IMAGE   ?=
