@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Optional, after `make e2e` and `make substrate-integrate`: the krci-agent-dispatcher project hook on
-# Codebase test-go-app. Every value comes from the cluster:
+# Optional, after `make e2e` and `make substrate-integrate`: per-project setup of Codebase test-go-app
+# for krci-agent-dispatcher: the project hook and the protected branch agent/*. Every value comes from
+# the cluster:
 #   * project: Codebase krci/test-go-app (.spec.gitUrlPath);
 #   * GitLab: GitServer krci/gitlab (.spec.gitHost, .spec.httpsPort), Maintainer token in its secret
 #     (.spec.nameSshKeySecret, key token), CA in configmap krci/gitlab-ca;
@@ -8,6 +9,9 @@
 #     krci-agents/hook.
 # The hook with that exact URL is created or updated: issue and note events only, SSL verification on.
 # Other hooks are not changed. A test delivery must reach the dispatcher (/hook 202 in its log).
+# Protected branch agent/*: push Developers (30), merge Maintainers (40), force push off. Created when
+# missing; deleted and re-created when any value differs (including user/group entries). The default
+# branch protection is not touched.
 # Tokens go to curl from a process substitution, never in argv or output.
 set -euo pipefail
 
@@ -16,6 +20,7 @@ NS="${NS:-krci}"
 CODEBASE=test-go-app
 AGENTS_NS=krci-agents
 DISPATCHER=krci-agent-dispatcher
+AGENT_BRANCHES='agent/*'
 KUBECTL="kubectl --context $CTX"
 TMP="$(umask 077; mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -81,6 +86,21 @@ if [ -n "$HID" ]; then
 else
   HID="$(call POST "projects/$PID/hooks" --data-binary @"$TMP/hook.json" | jq -r '.id')"
   echo "    hook $HID created"
+fi
+
+echo "==> Protected branch $AGENT_BRANCHES on $PROJECT"
+PB_URI="$(jq -rn --arg b "$AGENT_BRANCHES" '$b | @uri')"
+PB="$(call GET "projects/$PID/protected_branches?per_page=100" | jq -c --arg n "$AGENT_BRANCHES" 'first(.[] | select(.name == $n)) // empty')"
+PB_OK='[.push_access_levels[] | [.access_level, .user_id, .group_id]] == [[30, null, null]]
+  and [.merge_access_levels[] | [.access_level, .user_id, .group_id]] == [[40, null, null]]
+  and .allow_force_push == false'
+if [ -n "$PB" ] && jq -e "$PB_OK" <<<"$PB" >/dev/null; then
+  echo "    $AGENT_BRANCHES present: push Developers, merge Maintainers, force push off"
+else
+  [ -z "$PB" ] || call DELETE "projects/$PID/protected_branches/$PB_URI" >/dev/null
+  jq -n --arg n "$AGENT_BRANCHES" '{name: $n, push_access_level: 30, merge_access_level: 40, allow_force_push: false}' >"$TMP/protected.json"
+  call POST "projects/$PID/protected_branches" --data-binary @"$TMP/protected.json" >/dev/null
+  echo "    $AGENT_BRANCHES $([ -n "$PB" ] && echo fixed || echo created): push Developers, merge Maintainers, force push off"
 fi
 
 echo "==> Test delivery"

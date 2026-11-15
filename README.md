@@ -197,14 +197,18 @@ The optional `make substrate` installs Agent Substrate from its release images (
 Docker restart); `make substrate-integrate` then adds `krci-agent` (**KRCI Agent**, Developer on
 `krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`. It also installs
 `krci-agent-dispatcher` (`AGENT_DISPATCHER_VERSION`, snapshot Helm repo) in `krci-agents`, with its
-hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. The agent image is
-`KRCI_AGENT_IMAGE`, pinned by digest:
+hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. Both images are pinned by
+digest; the `Makefile` sets released defaults: the agent image `KRCI_AGENT_IMAGE`
+(`epamedp/krci-agent-go`) and the harness image `KRCI_HARNESS_IMAGE` (`epamedp/krci-agent-harness`
+of the same release as `AGENT_DISPATCHER_VERSION`). Override them for another build:
 
 ```bash
-make substrate-integrate KRCI_AGENT_IMAGE=<repo>:<tag>@sha256:<digest>
+make substrate-integrate KRCI_AGENT_IMAGE=<repo>:<tag>@sha256:<digest> \
+  KRCI_HARNESS_IMAGE=<repo>:<tag>@sha256:<digest>
 ```
 
-After `make e2e`, `make substrate-hook` adds the dispatcher hook to `krci/test-go-app`.
+After `make e2e`, `make substrate-hook` adds the dispatcher hook to `krci/test-go-app` and protects
+the branch `agent/*` there (push: Developers, merge: Maintainers, force push off).
 
 The Anthropic API key is the one external secret: create it yourself, never in a file or the repo.
 Secret `krci-agents/anthropic`, key `api-key`, value = the key (`sk-ant-...`) and nothing else.
@@ -351,7 +355,7 @@ scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts +
 scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube secret
 scripts/substrate.sh                    # (optional) Agent Substrate: release images + kubectl-ate (.cache/substrate/)
 scripts/substrate-integrate.sh          # (post-krci, optional) landing zone krci-agents: egress gateway CA, namespace/atespace/WorkerPool/namespace policy, GitLab user krci-agent, krci-agent-dispatcher
-scripts/substrate-hook.sh               # (post-e2e, optional) krci-agent-dispatcher project hook on test-go-app + test delivery
+scripts/substrate-hook.sh               # (post-e2e, optional) krci-agent-dispatcher project hook + protected branch agent/* on test-go-app, test delivery
 scripts/gitlab-runner.sh                # GitLab CI: install + register the GitLab Runner
 scripts/gitlab-ci-onboard.sh            # GitLab CI: mirror the ci-java17-mvn component + onboard the app
 scripts/e2e-gitlabci.sh                 # GitLab CI: e2e (MR -> review -> merge -> build; not Tekton)

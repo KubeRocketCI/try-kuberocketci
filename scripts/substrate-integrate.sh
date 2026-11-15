@@ -16,8 +16,9 @@
 #   * secret krci-agents/gitlab: token; basic = base64("oauth2:<token>") (Authorization: Basic
 #     value for git over HTTPS).
 #   * krci-agent-dispatcher AGENT_DISPATCHER_VERSION from Helm repo AGENT_DISPATCHER_REPO,
-#     values/agent-dispatcher.yaml, agentImage KRCI_AGENT_IMAGE
-#     (<repo>[:<tag>]@sha256:<digest>). Before the release:
+#     values/agent-dispatcher.yaml, agentImage KRCI_AGENT_IMAGE, harnessImage KRCI_HARNESS_IMAGE
+#     (both required, <repo>[:<tag>]@sha256:<digest>; the harness image of the same release as the
+#     chart). Before the release:
 #     - namespace label ate.dev/api-access=true (NetworkPolicy ate-system/ate-api-server);
 #     - atespace access policy: role editor for ServiceAccount krci-agents/krci-agent-dispatcher,
 #       added to the existing bindings;
@@ -42,10 +43,15 @@ SUBSTRATE_EGRESS_CA="${SUBSTRATE_EGRESS_CA-krci/gitlab-ca}"
 AGENT_DISPATCHER_VERSION="${AGENT_DISPATCHER_VERSION:?AGENT_DISPATCHER_VERSION is required}"
 AGENT_DISPATCHER_REPO="${AGENT_DISPATCHER_REPO:?AGENT_DISPATCHER_REPO is required}"
 KRCI_AGENT_IMAGE="${KRCI_AGENT_IMAGE:?KRCI_AGENT_IMAGE is required: <repo>[:<tag>]@sha256:<digest>}"
-[[ "$KRCI_AGENT_IMAGE" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]] || {
-  echo "FAIL KRCI_AGENT_IMAGE=$KRCI_AGENT_IMAGE is not pinned by digest: use <repo>[:<tag>]@sha256:<digest>" >&2
-  exit 1
+KRCI_HARNESS_IMAGE="${KRCI_HARNESS_IMAGE:?KRCI_HARNESS_IMAGE is required: <repo>[:<tag>]@sha256:<digest>}"
+check_image() {
+  [[ "$2" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]] || {
+    echo "FAIL $1=$2 is not pinned by digest: use <repo>[:<tag>]@sha256:<digest>" >&2
+    exit 1
+  }
 }
+check_image KRCI_AGENT_IMAGE "$KRCI_AGENT_IMAGE"
+check_image KRCI_HARNESS_IMAGE "$KRCI_HARNESS_IMAGE"
 WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 DISPATCHER=krci-agent-dispatcher
 DISPATCHER_HOST="agent-dispatcher.${WILDCARD}"
@@ -168,9 +174,9 @@ agent_dispatcher() {
 
   $HELM upgrade --install "$DISPATCHER" "$AGENT_DISPATCHER_REPO/$DISPATCHER" --version "$AGENT_DISPATCHER_VERSION" \
     -n "$AGENTS_NS" -f "$HERE/values/agent-dispatcher.yaml" \
-    --set agentImage="$KRCI_AGENT_IMAGE" --set ingress.host="$DISPATCHER_HOST" \
-    --wait --timeout 5m >/dev/null
-  echo "    $DISPATCHER $AGENT_DISPATCHER_VERSION ready: https://$DISPATCHER_HOST/hook (agent image $KRCI_AGENT_IMAGE)"
+    --set agentImage="$KRCI_AGENT_IMAGE" --set harnessImage="$KRCI_HARNESS_IMAGE" \
+    --set ingress.host="$DISPATCHER_HOST" --wait --timeout 5m >/dev/null
+  echo "    $DISPATCHER $AGENT_DISPATCHER_VERSION ready: https://$DISPATCHER_HOST/hook (agent image $KRCI_AGENT_IMAGE, harness image $KRCI_HARNESS_IMAGE)"
 }
 
 echo "==> Egress gateway upstream CA"
