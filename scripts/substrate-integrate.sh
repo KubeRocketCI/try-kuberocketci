@@ -16,9 +16,11 @@
 #   * secret krci-agents/gitlab: token; basic = base64("oauth2:<token>") (Authorization: Basic
 #     value for git over HTTPS).
 #   * krci-agent-dispatcher AGENT_DISPATCHER_VERSION from Helm repo AGENT_DISPATCHER_REPO,
-#     values/agent-dispatcher.yaml, agentImage KRCI_AGENT_IMAGE, harnessImage KRCI_HARNESS_IMAGE
-#     (both required, <repo>[:<tag>]@sha256:<digest>; the harness image of the same release as the
-#     chart). Before the release:
+#     values/agent-dispatcher.yaml, harnessImage KRCI_HARNESS_IMAGE (required,
+#     <repo>[:<tag>]@sha256:<digest>; the harness image of the same release as the chart). Agent images
+#     come from the chart's agent profiles (deploy-templates/profiles.yaml). AGENT_DISPATCHER_CHART, a
+#     local chart directory, replaces the Helm repo chart; AGENT_DISPATCHER_IMAGE (<repo>:<tag>, for
+#     example kind-loaded) replaces the chart's dispatcher image. Before the release:
 #     - namespace label ate.dev/api-access=true (NetworkPolicy ate-system/ate-api-server);
 #     - atespace access policy: role editor for ServiceAccount krci-agents/krci-agent-dispatcher,
 #       added to the existing bindings;
@@ -42,7 +44,6 @@ AGENTS_NS=krci-agents
 SUBSTRATE_EGRESS_CA="${SUBSTRATE_EGRESS_CA-krci/gitlab-ca}"
 AGENT_DISPATCHER_VERSION="${AGENT_DISPATCHER_VERSION:?AGENT_DISPATCHER_VERSION is required}"
 AGENT_DISPATCHER_REPO="${AGENT_DISPATCHER_REPO:?AGENT_DISPATCHER_REPO is required}"
-KRCI_AGENT_IMAGE="${KRCI_AGENT_IMAGE:?KRCI_AGENT_IMAGE is required: <repo>[:<tag>]@sha256:<digest>}"
 KRCI_HARNESS_IMAGE="${KRCI_HARNESS_IMAGE:?KRCI_HARNESS_IMAGE is required: <repo>[:<tag>]@sha256:<digest>}"
 check_image() {
   [[ "$2" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]] || {
@@ -50,7 +51,8 @@ check_image() {
     exit 1
   }
 }
-check_image KRCI_AGENT_IMAGE "$KRCI_AGENT_IMAGE"
+AGENT_DISPATCHER_CHART="${AGENT_DISPATCHER_CHART:-}"
+AGENT_DISPATCHER_IMAGE="${AGENT_DISPATCHER_IMAGE:-}"
 check_image KRCI_HARNESS_IMAGE "$KRCI_HARNESS_IMAGE"
 WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 DISPATCHER=krci-agent-dispatcher
@@ -172,11 +174,23 @@ agent_dispatcher() {
 
   dispatcher_tls "$dir"
 
-  $HELM upgrade --install "$DISPATCHER" "$AGENT_DISPATCHER_REPO/$DISPATCHER" --version "$AGENT_DISPATCHER_VERSION" \
+  local chart=("$AGENT_DISPATCHER_REPO/$DISPATCHER" --version "$AGENT_DISPATCHER_VERSION") source="$AGENT_DISPATCHER_VERSION"
+  local image=()
+  if [ -n "$AGENT_DISPATCHER_CHART" ]; then
+    chart=("$AGENT_DISPATCHER_CHART") source="$AGENT_DISPATCHER_CHART"
+  fi
+  if [ -n "$AGENT_DISPATCHER_IMAGE" ]; then
+    [[ "${AGENT_DISPATCHER_IMAGE##*/}" == *:* ]] || {
+      echo "FAIL AGENT_DISPATCHER_IMAGE=$AGENT_DISPATCHER_IMAGE has no tag: use <repo>:<tag>" >&2
+      exit 1
+    }
+    image=(--set image.repository="${AGENT_DISPATCHER_IMAGE%:*}" --set image.tag="${AGENT_DISPATCHER_IMAGE##*:}")
+  fi
+  $HELM upgrade --install "$DISPATCHER" "${chart[@]}" \
     -n "$AGENTS_NS" -f "$HERE/values/agent-dispatcher.yaml" \
-    --set agentImage="$KRCI_AGENT_IMAGE" --set harnessImage="$KRCI_HARNESS_IMAGE" \
+    --set harnessImage="$KRCI_HARNESS_IMAGE" ${image[@]+"${image[@]}"} \
     --set ingress.host="$DISPATCHER_HOST" --wait --timeout 5m >/dev/null
-  echo "    $DISPATCHER $AGENT_DISPATCHER_VERSION ready: https://$DISPATCHER_HOST/hook (agent image $KRCI_AGENT_IMAGE, harness image $KRCI_HARNESS_IMAGE)"
+  echo "    $DISPATCHER $source ready: https://$DISPATCHER_HOST/hook (harness image $KRCI_HARNESS_IMAGE)"
 }
 
 echo "==> Egress gateway upstream CA"
