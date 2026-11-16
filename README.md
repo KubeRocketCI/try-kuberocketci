@@ -197,14 +197,21 @@ The optional `make substrate` installs Agent Substrate from its release images (
 Docker restart); `make substrate-integrate` then adds `krci-agent` (**KRCI Agent**, Developer on
 `krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`. It also installs
 `krci-agent-dispatcher` (`AGENT_DISPATCHER_VERSION`, snapshot Helm repo) in `krci-agents`, with its
-hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. Both images are pinned by
-digest; the `Makefile` sets released defaults: the agent image `KRCI_AGENT_IMAGE`
-(`epamedp/krci-agent-go`) and the harness image `KRCI_HARNESS_IMAGE` (`epamedp/krci-agent-harness`
-of the same release as `AGENT_DISPATCHER_VERSION`). Override them for another build:
+hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. The harness image
+`KRCI_HARNESS_IMAGE` (`epamedp/krci-agent-harness` of the same release as
+`AGENT_DISPATCHER_VERSION`) is pinned by digest. Agent images come from the chart's agent profiles
+(`deploy-templates/profiles.yaml`, ConfigMap `krci-agents/krci-agent-dispatcher-profiles`); an edit of
+the ConfigMap needs no restart and applies to new sessions.
+
+To test an unreleased dispatcher build, build it from a krci-agent-dispatcher checkout, load it into
+kind with a new tag each time (kind caches by tag), then install its chart:
 
 ```bash
-make substrate-integrate KRCI_AGENT_IMAGE=<repo>:<tag>@sha256:<digest> \
-  KRCI_HARNESS_IMAGE=<repo>:<tag>@sha256:<digest>
+make -C <dispatcher> build HOST_OS=linux
+docker build --build-arg TARGETARCH=arm64 -t krci-agent-dispatcher:dev-1 <dispatcher>
+kind load docker-image krci-agent-dispatcher:dev-1 --name krci
+make substrate-integrate AGENT_DISPATCHER_CHART=<dispatcher>/deploy-templates \
+  AGENT_DISPATCHER_IMAGE=krci-agent-dispatcher:dev-1
 ```
 
 After `make e2e`, `make substrate-hook` adds the dispatcher hook to `krci/test-go-app` and protects
