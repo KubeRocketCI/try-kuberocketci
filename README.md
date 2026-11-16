@@ -197,9 +197,8 @@ The optional `make substrate` installs Agent Substrate from its release images (
 Docker restart); `make substrate-integrate` then adds `krci-agent` (**KRCI Agent**, Developer on
 `krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`. It also installs
 `krci-agent-dispatcher` (`AGENT_DISPATCHER_VERSION`, snapshot Helm repo) in `krci-agents`, with its
-hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. The harness image
-`KRCI_HARNESS_IMAGE` (`epamedp/krci-agent-harness` of the same release as
-`AGENT_DISPATCHER_VERSION`) is pinned by digest. Agent images come from the chart's agent profiles
+hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. The chart pins the harness image
+(`harnessImage`) by digest. Agent images come from the chart's agent profiles
 (`deploy-templates/profiles.yaml`, ConfigMap `krci-agents/krci-agent-dispatcher-profiles`); an edit of
 the ConfigMap needs no restart and applies to new sessions.
 
