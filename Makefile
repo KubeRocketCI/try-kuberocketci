@@ -58,16 +58,13 @@ SUBSTRATE_EGRESS_CA ?= krci/gitlab-ca
 # Substrate release: checkout tag, image tag (ghcr.io/agent-substrate/substrate) and kubectl-ate version.
 SUBSTRATE_VERSION  ?= v1.0.0
 # krci-agent-dispatcher on the Substrate landing zone (substrate-integrate): chart version = image
-# tag (epamedp/krci-agent-dispatcher). Snapshot repo only until a stable release.
-AGENT_DISPATCHER_VERSION ?= 0.1.0-SNAPSHOT.33
+# tag (epamedp/krci-agent-dispatcher); the chart pins the harness image and the agent images.
+# Snapshot repo only until a stable release.
+AGENT_DISPATCHER_VERSION ?= 0.1.0-SNAPSHOT.34
 # Unreleased dispatcher build, both empty by default: AGENT_DISPATCHER_CHART = local chart directory
 # (<repo>/deploy-templates), AGENT_DISPATCHER_IMAGE = <repo>:<tag> loaded into kind. Steps: README.
 AGENT_DISPATCHER_CHART ?=
 AGENT_DISPATCHER_IMAGE ?=
-# Harness image (chart value harnessImage): <repo>[:<tag>]@sha256:<digest>, the multi-platform index
-# digest of epamedp/krci-agent-harness from the same release as AGENT_DISPATCHER_VERSION. Change both
-# together. Agent images come from the chart's agent profiles.
-KRCI_HARNESS_IMAGE ?= epamedp/krci-agent-harness:0.1.0-SNAPSHOT.31@sha256:974c078f7464a296a51b7b39b5b2e061f81f064f08c894595cbf9ee4f7708546
 # Dependency-Track (KRCI SCA backend: `krci sca`, Portal SCA tab, the security pipeline's
 # cdxgen upload). Chart pin matches edp-cluster-add-ons clusters/core/addons/dependency-track.
 # DB: manifests/deptrack-postgres.yaml.
@@ -351,7 +348,7 @@ substrate-integrate: repo-snapshot ## (post-krci, optional; re-run after make su
 	SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' SUBSTRATE_EGRESS_CA='$(SUBSTRATE_EGRESS_CA)' \
 	  AGENT_DISPATCHER_VERSION='$(AGENT_DISPATCHER_VERSION)' AGENT_DISPATCHER_REPO='$(SNAP_HELM_REPO_NAME)' \
 	  AGENT_DISPATCHER_CHART='$(AGENT_DISPATCHER_CHART)' AGENT_DISPATCHER_IMAGE='$(AGENT_DISPATCHER_IMAGE)' \
-	  KRCI_HARNESS_IMAGE='$(KRCI_HARNESS_IMAGE)' WILDCARD='$(WILDCARD)' bash scripts/substrate-integrate.sh
+	  WILDCARD='$(WILDCARD)' bash scripts/substrate-integrate.sh
 
 .PHONY: substrate-hook
 substrate-hook: ## (post-e2e, optional; after substrate-integrate) krci-agent-dispatcher hook on test-go-app (issue and note events, SSL verification on) + protected branch agent/* (push Developers, merge Maintainers, no force push); test delivery

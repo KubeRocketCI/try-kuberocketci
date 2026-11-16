@@ -16,9 +16,8 @@
 #   * secret krci-agents/gitlab: token; basic = base64("oauth2:<token>") (Authorization: Basic
 #     value for git over HTTPS).
 #   * krci-agent-dispatcher AGENT_DISPATCHER_VERSION from Helm repo AGENT_DISPATCHER_REPO,
-#     values/agent-dispatcher.yaml, harnessImage KRCI_HARNESS_IMAGE (required,
-#     <repo>[:<tag>]@sha256:<digest>; the harness image of the same release as the chart). Agent images
-#     come from the chart's agent profiles (deploy-templates/profiles.yaml). AGENT_DISPATCHER_CHART, a
+#     values/agent-dispatcher.yaml. The harness image and the agent images come from the chart:
+#     harnessImage and the agent profiles (deploy-templates/profiles.yaml). AGENT_DISPATCHER_CHART, a
 #     local chart directory, replaces the Helm repo chart; AGENT_DISPATCHER_IMAGE (<repo>:<tag>, for
 #     example kind-loaded) replaces the chart's dispatcher image. Before the release:
 #     - namespace label ate.dev/api-access=true (NetworkPolicy ate-system/ate-api-server);
@@ -44,16 +43,8 @@ AGENTS_NS=krci-agents
 SUBSTRATE_EGRESS_CA="${SUBSTRATE_EGRESS_CA-krci/gitlab-ca}"
 AGENT_DISPATCHER_VERSION="${AGENT_DISPATCHER_VERSION:?AGENT_DISPATCHER_VERSION is required}"
 AGENT_DISPATCHER_REPO="${AGENT_DISPATCHER_REPO:?AGENT_DISPATCHER_REPO is required}"
-KRCI_HARNESS_IMAGE="${KRCI_HARNESS_IMAGE:?KRCI_HARNESS_IMAGE is required: <repo>[:<tag>]@sha256:<digest>}"
-check_image() {
-  [[ "$2" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]] || {
-    echo "FAIL $1=$2 is not pinned by digest: use <repo>[:<tag>]@sha256:<digest>" >&2
-    exit 1
-  }
-}
 AGENT_DISPATCHER_CHART="${AGENT_DISPATCHER_CHART:-}"
 AGENT_DISPATCHER_IMAGE="${AGENT_DISPATCHER_IMAGE:-}"
-check_image KRCI_HARNESS_IMAGE "$KRCI_HARNESS_IMAGE"
 WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 DISPATCHER=krci-agent-dispatcher
 DISPATCHER_HOST="agent-dispatcher.${WILDCARD}"
@@ -188,9 +179,9 @@ agent_dispatcher() {
   fi
   $HELM upgrade --install "$DISPATCHER" "${chart[@]}" \
     -n "$AGENTS_NS" -f "$HERE/values/agent-dispatcher.yaml" \
-    --set harnessImage="$KRCI_HARNESS_IMAGE" ${image[@]+"${image[@]}"} \
+    ${image[@]+"${image[@]}"} \
     --set ingress.host="$DISPATCHER_HOST" --wait --timeout 5m >/dev/null
-  echo "    $DISPATCHER $source ready: https://$DISPATCHER_HOST/hook (harness image $KRCI_HARNESS_IMAGE)"
+  echo "    $DISPATCHER $source ready: https://$DISPATCHER_HOST/hook"
 }
 
 echo "==> Egress gateway upstream CA"
