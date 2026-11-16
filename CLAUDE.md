@@ -44,6 +44,9 @@ There is no app build/lint/unit-test step — this repo *orchestrates a cluster*
 - **Inspect:** `make status` (cluster + tool URLs + Portal `.env` values) ·
   `make gitlab-status` (GitLab + GitServer + EventListener + runner + webhook state).
 - **Tear down:** `make down` (deletes the kind cluster; nothing persists outside it).
+- **Issue agent:** `make agent-e2e` (after `make substrate-integrate` and `make substrate-hook`).
+  `kubectl-ate` is `.cache/substrate/<SUBSTRATE_VERSION>/bin/kubectl-ate`; flags go after the plugin
+  name: `kubectl ate --context kind-krci get actors -a krci-agents`.
 - **Validate (these are the "tests"):** the `make e2e*` targets under [CI paths](#ci-paths).
   Each target just runs its `scripts/*.sh`, so `bash scripts/e2e.sh` (etc.) works directly
   for one path. Full from-zero: `make down && make testbed && make e2e`.

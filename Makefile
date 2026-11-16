@@ -354,6 +354,10 @@ substrate-integrate: repo-snapshot ## (post-krci, optional; re-run after make su
 substrate-hook: ## (post-e2e, optional; after substrate-integrate) krci-agent-dispatcher hook on test-go-app (issue and note events, SSL verification on) + protected branch agent/* (push Developers, merge Maintainers, no force push); test delivery
 	bash scripts/substrate-hook.sh
 
+.PHONY: agent-e2e
+agent-e2e: ## (after substrate-hook) Issue agent on test-go-app: issue → turn 1 → merge request merged → done
+	SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' bash scripts/agent-e2e.sh
+
 # ---- access -----------------------------------------------------------------
 .PHONY: token
 token: ## Mint a 24h cluster-admin token for Portal login (local only)
