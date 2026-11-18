@@ -1,0 +1,11 @@
+# krci-security-operator (imports the Trivy Operator VulnerabilityReports and ExposedSecretReports of every
+# namespace into DefectDojo, product `<clusterName>/<namespace>` under Product Type KubeRocketCI) for the
+# local kind testbed. Installed by `make defectdojo-integrate` in ns krci-security from the snapshot repo
+# (SECURITY_OPERATOR_VERSION). Set by the script: clusterName (DEFECTDOJO_CLUSTER_NAME, default
+# in-cluster) and defectdojo.secretName (defectdojo-credentials, keys url + token).
+# edp-cluster-add-ons clusters/core/addons/krci-security-operator targets stable 0.1.0 (scopes
+# stage/tenant/platform, platformProduct); those keys do not exist in 0.2.0.
+# Chart defaults otherwise: Product Type KubeRocketCI, resync 30m, concurrency 2, both report kinds.
+
+# Trivy Operator already skips the system namespaces (values/trivy-operator.yaml).
+excludeNamespaces: []
