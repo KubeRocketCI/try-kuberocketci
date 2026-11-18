@@ -131,7 +131,10 @@ If `@playwright/mcp` is configured, prefer the above approach for any multi-step
     `registry-integration.md`).
 
 - `kubectl` context is `kind-krci`; namespaces: `krci` (platform), `gitlab`,
-  `gitlab-runner`, `sonar`, `argocd`, `monitoring`, `tekton-pipelines`.
+  `gitlab-runner`, `sonar`, `argocd`, `monitoring`, `tekton-pipelines`; optional: `dependency-track`
+  (`make deptrack`), `defectdojo` + `trivy-system` (`make defectdojo`), `krci-security`
+  (krci-security-operator, `make defectdojo-integrate`; credentials `krci/ci-defectdojo`,
+  `krci-security/defectdojo-credentials`, the latter kept when present).
 - The shell is **zsh** — it does NOT word-split unquoted `$VAR`; for `kubectl --context …`
   in a variable, call `kubectl` directly or run the block under `bash -s`.
 - GitLab first boot is slow (3–6 min) and `make e2e` ~12 min — give long-running targets

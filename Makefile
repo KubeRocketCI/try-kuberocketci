@@ -72,6 +72,32 @@ DEPTRACK_REPO_NAME ?= dependency-track
 DEPTRACK_REPO_URL  ?= https://dependencytrack.github.io/helm-charts
 DEPTRACK_CHART_VERSION ?= 0.41.0
 DEPTRACK_NS        ?= dependency-track
+# DefectDojo (KRCI findings store: the security pipeline's Trivy/Grype upload, krci-security-operator,
+# Portal security views). Chart 1.9.70 = DefectDojo 3.5.200 (latest stable). edp-cluster-add-ons
+# clusters/core/addons/defectdojo still pins chart 1.9.12 = DefectDojo 2.55.2:
+# `make defectdojo-down && DEFECTDOJO_CHART_VERSION=1.9.12 make defectdojo`. The 2.x <-> 3.x database
+# migration is one-way: `make defectdojo-down` before every switch.
+# DB + broker: the chart's bundled PostgreSQL and Valkey.
+# DEFECTDOJO_CLUSTER_NAME = CLUSTER_NAME of krci-security-operator (default in-cluster); the Portal reads it.
+DEFECTDOJO_REPO_NAME ?= defectdojo
+DEFECTDOJO_REPO_URL  ?= https://raw.githubusercontent.com/DefectDojo/django-DefectDojo/helm-charts
+DEFECTDOJO_CHART_VERSION ?= 1.9.70
+DEFECTDOJO_NS      ?= defectdojo
+DEFECTDOJO_SECURITY_NS ?= krci-security
+DEFECTDOJO_CLUSTER_NAME ?= in-cluster
+# Trivy Operator (report CRs krci-security-operator imports into DefectDojo), installed by
+# `make defectdojo`. Chart pin + values match edp-cluster-add-ons clusters/core/addons/trivy-operator.
+TRIVY_OPERATOR_REPO_NAME ?= aquasecurity
+TRIVY_OPERATOR_REPO_URL  ?= https://aquasecurity.github.io/helm-charts
+TRIVY_OPERATOR_CHART_VERSION ?= 0.37.0
+TRIVY_OPERATOR_NS  ?= trivy-system
+# krci-security-operator (imports the Trivy reports into DefectDojo), installed by
+# `make defectdojo-integrate` in DEFECTDOJO_SECURITY_NS. Snapshot repo only: stable 0.1.0 predates
+# the namespace products. Unreleased build, both empty by default: SECURITY_OPERATOR_CHART = local
+# chart directory (<repo>/deploy-templates), SECURITY_OPERATOR_IMAGE = <repo>:<tag> loaded into kind.
+SECURITY_OPERATOR_VERSION ?= 0.2.0-SNAPSHOT.11
+SECURITY_OPERATOR_CHART ?=
+SECURITY_OPERATOR_IMAGE ?=
 # Images `preload` pulls into the host docker cache (survives `make down`) and loads into
 # the node, whose containerd cache dies with the cluster (GitLab CE is ~3GB). Parsed from
 # the manifest: the image pin lives in one place.
@@ -338,6 +364,44 @@ deptrack: ## Install Dependency-Track (chart $(DEPTRACK_CHART_VERSION)) + own Po
 deptrack-integrate: ## (post-krci, optional; re-run after make krci) Set the admin password, mint API keys, wire ci-dependency-track + the Portal, enable OSV
 	bash scripts/deptrack-integrate.sh
 
+.PHONY: defectdojo
+defectdojo: ## Install DefectDojo (chart $(DEFECTDOJO_CHART_VERSION), bundled PostgreSQL + Valkey; KRCI findings store) + Trivy Operator (chart $(TRIVY_OPERATOR_CHART_VERSION), ns $(TRIVY_OPERATOR_NS)); optional, not part of `make testbed`
+	# DB, broker and secrets come from the chart. First start runs the initializer Job (migrations, 3-6 min).
+	helm repo add $(DEFECTDOJO_REPO_NAME) $(DEFECTDOJO_REPO_URL) 2>/dev/null || true
+	helm repo update $(DEFECTDOJO_REPO_NAME)
+	$(HELM) upgrade --install defectdojo $(DEFECTDOJO_REPO_NAME)/defectdojo \
+	  --version $(DEFECTDOJO_CHART_VERSION) -n $(DEFECTDOJO_NS) --create-namespace \
+	  -f values/defectdojo.yaml --wait --timeout 900s
+	$(KUBECTL) -n $(DEFECTDOJO_NS) rollout status deploy/defectdojo-django --timeout=300s
+	# Built-in Trivy server downloads the vulnerability DB on first start (~1 min).
+	helm repo add $(TRIVY_OPERATOR_REPO_NAME) $(TRIVY_OPERATOR_REPO_URL) 2>/dev/null || true
+	helm repo update $(TRIVY_OPERATOR_REPO_NAME)
+	$(HELM) upgrade --install trivy-operator $(TRIVY_OPERATOR_REPO_NAME)/trivy-operator \
+	  --version $(TRIVY_OPERATOR_CHART_VERSION) -n $(TRIVY_OPERATOR_NS) --create-namespace \
+	  -f values/trivy-operator.yaml --wait --timeout 600s
+	$(KUBECTL) -n $(DEFECTDOJO_NS) get pods
+	$(KUBECTL) -n $(TRIVY_OPERATOR_NS) get pods
+	@echo "DefectDojo UI: http://defectdojo.$(WILDCARD)  (run 'make defectdojo-integrate' next)"
+
+.PHONY: defectdojo-integrate
+defectdojo-integrate: repo-snapshot ## (optional; re-run after make krci) Mint the admin API token; wire ci-defectdojo (ns krci), the Portal, defectdojo-credentials (ns krci-security, kept when present) + install krci-security-operator $(SECURITY_OPERATOR_VERSION)
+	CTX='$(CTX)' NS='$(NS)' DEFECTDOJO_NS='$(DEFECTDOJO_NS)' SECURITY_NS='$(DEFECTDOJO_SECURITY_NS)' \
+	  DEFECTDOJO_CLUSTER_NAME='$(DEFECTDOJO_CLUSTER_NAME)' WILDCARD='$(WILDCARD)' TRIVY_NS='$(TRIVY_OPERATOR_NS)' \
+	  SECURITY_OPERATOR_VERSION='$(SECURITY_OPERATOR_VERSION)' SECURITY_OPERATOR_REPO='$(SNAP_HELM_REPO_NAME)' \
+	  SECURITY_OPERATOR_CHART='$(SECURITY_OPERATOR_CHART)' SECURITY_OPERATOR_IMAGE='$(SECURITY_OPERATOR_IMAGE)' \
+	  bash scripts/defectdojo-integrate.sh
+
+.PHONY: defectdojo-down
+defectdojo-down: ## Uninstall krci-security-operator + DefectDojo + Trivy Operator, delete ns $(DEFECTDOJO_SECURITY_NS), $(DEFECTDOJO_NS) (database, secrets), $(TRIVY_OPERATOR_NS), the Trivy CRDs (all reports) + the integration credentials; run before switching 2.x/3.x
+	CTX='$(CTX)' NS='$(NS)' DEFECTDOJO_NS='$(DEFECTDOJO_NS)' SECURITY_NS='$(DEFECTDOJO_SECURITY_NS)' \
+	  WILDCARD='$(WILDCARD)' bash scripts/defectdojo-integrate.sh --remove
+	$(HELM) uninstall trivy-operator -n $(TRIVY_OPERATOR_NS) --ignore-not-found --wait --timeout 300s
+	# helm uninstall keeps chart CRDs; deleting them deletes every report CR.
+	$(KUBECTL) get crd -o name | grep '\.aquasecurity\.github\.io$$' | xargs -r $(KUBECTL) delete --wait --timeout=300s
+	$(KUBECTL) delete namespace $(TRIVY_OPERATOR_NS) --ignore-not-found --wait --timeout=300s
+	$(HELM) uninstall defectdojo -n $(DEFECTDOJO_NS) --ignore-not-found --wait --timeout 300s
+	$(KUBECTL) delete namespace $(DEFECTDOJO_NS) --ignore-not-found --wait --timeout=300s
+
 # ---- Substrate (optional) ----------------------------------------------------
 .PHONY: substrate
 substrate: ## (optional) Install Agent Substrate $(SUBSTRATE_VERSION) from release images (values/substrate-install.yaml) + kubectl-ate; re-run after a Docker restart
@@ -378,6 +442,11 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && echo "    KRCI integration: secret/ci-sonarqube present (ns $(NS))" || echo "    KRCI integration: ci-sonarqube MISSING (run make sonar-integrate)"
 	@echo "--- dependency-track ---"; $(KUBECTL) get ns $(DEPTRACK_NS) >/dev/null 2>&1 && $(KUBECTL) -n $(DEPTRACK_NS) get pods || echo "(not installed; optional: make deptrack)"
 	@$(KUBECTL) get ns $(DEPTRACK_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(NS) get secret ci-dependency-track >/dev/null 2>&1 && echo "    KRCI integration: secret/ci-dependency-track present (ns $(NS))" || echo "    KRCI integration: ci-dependency-track MISSING (run make deptrack-integrate)"; } || true
+	@echo "--- defectdojo ---"; $(KUBECTL) get ns $(DEFECTDOJO_NS) >/dev/null 2>&1 && $(KUBECTL) -n $(DEFECTDOJO_NS) get pods || echo "(not installed; optional: make defectdojo)"
+	@$(KUBECTL) get ns $(DEFECTDOJO_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(NS) get secret ci-defectdojo >/dev/null 2>&1 && echo "    KRCI integration: secret/ci-defectdojo present (ns $(NS))" || echo "    KRCI integration: ci-defectdojo MISSING (run make defectdojo-integrate)"; } || true
+	@$(KUBECTL) get ns $(DEFECTDOJO_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(DEFECTDOJO_SECURITY_NS) get secret defectdojo-credentials >/dev/null 2>&1 && echo "    Operator: secret/defectdojo-credentials present (ns $(DEFECTDOJO_SECURITY_NS))" || echo "    Operator: defectdojo-credentials MISSING (run make defectdojo-integrate)"; } || true
+	@$(KUBECTL) get ns $(DEFECTDOJO_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(DEFECTDOJO_SECURITY_NS) get deploy krci-security-operator >/dev/null 2>&1 && echo "    Operator: deploy/krci-security-operator $$($(KUBECTL) -n $(DEFECTDOJO_SECURITY_NS) get deploy krci-security-operator -o jsonpath='{.status.readyReplicas}/{.spec.replicas} ready, image {.spec.template.spec.containers[0].image}')" || echo "    Operator: krci-security-operator NOT INSTALLED (run make defectdojo-integrate)"; } || true
+	@echo "--- trivy-operator ---"; $(KUBECTL) get ns $(TRIVY_OPERATOR_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(TRIVY_OPERATOR_NS) get pods; echo "    VulnerabilityReports: $$($(KUBECTL) get vulnerabilityreports -A --no-headers 2>/dev/null | wc -l | tr -d ' ')"; } || echo "(not installed; optional: make defectdojo)"
 	@echo "--- gitlab ---"; $(KUBECTL) -n gitlab get pods 2>/dev/null | grep -E 'gitlab|NAME' || echo "(not installed)"
 	@echo "--- tekton-results ---"; $(KUBECTL) -n $(TEKTON_NS) get pods 2>/dev/null | grep -E 'results' || echo "(not installed)"
 	@echo ""
@@ -385,6 +454,7 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) -n $(ARGOCD_NS) get ingress argocd-server >/dev/null 2>&1 && { echo -n "  Argo CD UI:     http://argocd.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(ARGOCD_NS) get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n $(SONAR_NS) get ingress sonar >/dev/null 2>&1 && { echo -n "  SonarQube UI:   https://sonar.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(SONAR_NS) get secret sonar-admin-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n $(DEPTRACK_NS) get secret deptrack-admin-password >/dev/null 2>&1 && { echo -n "  Dep-Track UI:   https://deptrack.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(DEPTRACK_NS) get secret deptrack-admin-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
+	@$(KUBECTL) -n $(DEFECTDOJO_NS) get secret defectdojo >/dev/null 2>&1 && { echo -n "  DefectDojo UI:  http://defectdojo.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(DEFECTDOJO_NS) get secret defectdojo -o jsonpath='{.data.DD_ADMIN_PASSWORD}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n gitlab get secret gitlab-root-password >/dev/null 2>&1 && { echo -n "  GitLab UI:      https://gitlab.$(WILDCARD)  (user root / "; $(KUBECTL) -n gitlab get secret gitlab-root-password -o jsonpath='{.data.password}' | base64 -d; echo ")"; } || true
 	@$(KUBECTL) -n $(TEKTON_NS) get ingress tekton-results-api >/dev/null 2>&1 && echo "  Results API:    http://tekton-results.$(WILDCARD)" || true
 	@$(KUBECTL) -n $(MONITORING_NS) get ingress prometheus-grafana >/dev/null 2>&1 && { echo -n "  Grafana UI:     http://grafana.$(WILDCARD)  (user admin / "; $(KUBECTL) -n $(MONITORING_NS) get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo ")"; } || true
@@ -398,6 +468,8 @@ status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) -n $(NS) get secret ci-sonarqube >/dev/null 2>&1 && { echo -n "    SONAR_TOKEN="; $(KUBECTL) -n $(NS) get secret ci-sonarqube -o jsonpath='{.data.token}' | base64 -d; echo; } || echo "    SONAR_TOKEN=(ci-sonarqube secret not found — run make sonar-integrate)"
 	@$(KUBECTL) get ns $(DEPTRACK_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(DEPTRACK_NS) get ingress deptrack >/dev/null 2>&1 && echo "    DEPENDENCY_TRACK_URL=https://deptrack.$(WILDCARD)" || echo "    DEPENDENCY_TRACK_URL=(deptrack ingress not found — run make deptrack)"; } || true
 	@$(KUBECTL) get ns $(DEPTRACK_NS) >/dev/null 2>&1 && { key=$$($(KUBECTL) -n $(NS) get secret krci-portal-secret -o jsonpath='{.data.DEPENDENCY_TRACK_API_KEY}' 2>/dev/null | base64 -d); [ -n "$$key" ] && echo "    DEPENDENCY_TRACK_API_KEY=$$key" || echo "    DEPENDENCY_TRACK_API_KEY=(not set in krci-portal-secret — run make deptrack-integrate)"; } || true
+	@$(KUBECTL) get ns $(DEFECTDOJO_NS) >/dev/null 2>&1 && { $(KUBECTL) -n $(DEFECTDOJO_NS) get ingress defectdojo >/dev/null 2>&1 && { echo "    DEFECTDOJO_URL=http://defectdojo.$(WILDCARD)"; echo "    DEFECTDOJO_WEB_URL=http://defectdojo.$(WILDCARD)"; echo "    DEFECTDOJO_CLUSTER_NAME=$(DEFECTDOJO_CLUSTER_NAME)"; } || echo "    DEFECTDOJO_URL=(defectdojo ingress not found — run make defectdojo)"; } || true
+	@$(KUBECTL) get ns $(DEFECTDOJO_NS) >/dev/null 2>&1 && { key=$$($(KUBECTL) -n $(DEFECTDOJO_SECURITY_NS) get secret defectdojo-credentials -o jsonpath='{.data.token}' 2>/dev/null | base64 -d); [ -n "$$key" ] && echo "    DEFECTDOJO_API_KEY=$$key" || echo "    DEFECTDOJO_API_KEY=(defectdojo-credentials not found — run make defectdojo-integrate)"; } || true
 
 # ---- self-hosted git --------------------------------------------------------
 # GitLab is a platform dependency. gitlab-up runs before krci: the chart renders the

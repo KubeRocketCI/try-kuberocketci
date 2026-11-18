@@ -1,0 +1,90 @@
+# Trivy Operator (VulnerabilityReport + ExposedSecretReport CRs, the kinds krci-security-operator imports
+# into DefectDojo) for the local kind testbed: upstream chart aquasecurity/trivy-operator, values =
+# edp-cluster-add-ons clusters/core/addons/trivy-operator/values.yaml without its `trivy-operator:`
+# wrapper key (that add-on is an umbrella chart). Installed by `make defectdojo` in ns trivy-system.
+# Local deviations:
+#   * targetNamespaces: krci, krci-demo-dev, krci-security, argocd (add-ons: cluster-wide).
+#     Tekton TaskRun pods skipped.
+#   * config audit, RBAC assessment, infra assessment and compliance scanners off: nothing reads them.
+#     Their add-ons settings (supportedConfigAuditKinds, nodeCollector, compliance.specs) dropped.
+
+# Scope: comma-separated namespaces to scan, no globs. Empty string = cluster-wide.
+# The KRCI platform, the e2e Stage, the security operator and one platform add-on. Add new Stage
+# namespaces here.
+targetNamespaces: "krci,krci-demo-dev,krci-security,argocd"
+# Only effective when targetNamespaces is blank (cluster-wide mode): the system namespaces. Globs allowed.
+excludeNamespaces: "kube-system,kube-public,kube-node-lease,local-path-storage,trivy-system"
+
+operator:
+  # Trivy runs in ClientServer mode: a shared in-cluster Trivy server holds the vulnerability DB
+  # in memory, scan jobs send extracted package lists to it. This avoids downloading the DB per scan job.
+  builtInTrivyServer: true
+
+  # Max parallel scan jobs. Each job scans one workload from the node's image cache
+  # (see trivy.command); the limit bounds scan CPU and memory.
+  scanJobsConcurrentLimit: 3
+
+  accessGlobalSecretsAndServiceAccount: false
+
+  # Reports are auto-deleted after this TTL and regenerated on next scan cycle.
+  # 7 days = one full week of historical data.
+  scannerReportTTL: "168h"
+
+  # Keep SBOM reports and the SBOM cache off. rootfs scans pull nothing, so the cache has
+  # nothing to save. With the cache on, jobs that reuse a cached SBOM rescan some workloads
+  # in a loop and hold all scan slots. SBOM reports of big images are the largest Trivy
+  # objects in etcd, and nothing reads them.
+  sbomGenerationEnabled: false
+  clusterSbomCacheEnabled: false
+
+  # The vulnerability scan job runs the vuln and secret scanners; the rest are off.
+  configAuditScannerEnabled: false
+  rbacAssessmentScannerEnabled: false
+  infraAssessmentScannerEnabled: false
+  clusterComplianceEnabled: false
+
+trivy:
+  # rootfs: the scan job runs the workload's own image, which the kubelet already pulled to
+  # the node, and scans the installed packages of its root file system (the same findings as
+  # image mode). Nothing is pulled from the registry, so scanning every namespace adds no
+  # registry or NAT traffic and needs no registry credentials.
+  command: rootfs
+  severity: HIGH,CRITICAL
+  # Skip vulnerabilities with no available fix — reduces noise in reports.
+  # Vulnerabilities without a severity yet (UNKNOWN) are still reported.
+  ignoreUnfixed: true
+
+trivyOperator:
+  # Short-lived pods of every PipelineRun in ns krci; each would get its own scan job.
+  skipResourceByLabels: "tekton.dev/taskRun"
+  # Scan jobs run in trivy-system. With true, trivy-operator starts them in the workload
+  # namespace without the trivy settings above (they are read from a ConfigMap in trivy-system),
+  # so severity and ignoreUnfixed are silently lost.
+  # Limit: since Kubernetes 1.35 the kubelet starts a pod from a cached image pulled with
+  # imagePullSecrets only when the pod carries the same secret, so workloads whose images are
+  # pulled that way end in ErrImageNeverPull and get no report. Public images and images pulled
+  # with node credentials (ECR on EKS) are scanned. Testbed: `make defectdojo-integrate` adds a copy
+  # of krci/regcred to the imagePullSecrets of ServiceAccount trivy-operator, which the scan pods use,
+  # so the Stage images are scanned.
+  scanJobsInSameNamespace: false
+  # Non-root scan jobs. Vulnerability results are the same as with root; files readable only
+  # by root are not covered by the secret scan.
+  scanJobPodTemplatePodSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  scanJobPodTemplateContainerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    privileged: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65534
+
+compliance:
+  # The chart default (specs absent) is k8s-cis-1.23, k8s-nsa-1.0, k8s-pss-baseline-0.1, k8s-pss-restricted-0.1.
+  specs: []
