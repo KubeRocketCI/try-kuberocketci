@@ -41,8 +41,14 @@ django:
       nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
       nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
   uwsgi:
+    # 512Mi (chart default) is OOMKilled by reimports and API reads of tests with about 1,800 findings.
+    resources:
+      requests:
+        memory: 512Mi
+      limits:
+        memory: 2Gi
     appSettings:
-      # Chart default 4; the 512Mi limit stays.
+      # Chart default 4.
       processes: 2
       # Chart default 0 = detect: kind's containerd nofile is ~1e9 and uwsgi sizes its fd tables to
       # it, OOMKilled at any limit. 102400 -> ~320Mi with 2 processes.
