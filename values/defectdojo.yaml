@@ -58,6 +58,12 @@ postgresql:
   primary:
     persistence:
       size: 2Gi
+    # Replaces resourcesPreset nano (192Mi limit), OOMKilled by bursts of reimports.
+    resources:
+      requests:
+        memory: 256Mi
+      limits:
+        memory: 1Gi
 
 valkey:
   persistence:

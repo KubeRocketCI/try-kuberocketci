@@ -76,7 +76,8 @@ DEPTRACK_NS        ?= dependency-track
 # Portal security views). Chart 1.9.70 = DefectDojo 3.5.200 (latest stable). edp-cluster-add-ons
 # clusters/core/addons/defectdojo still pins chart 1.9.12 = DefectDojo 2.55.2:
 # `make defectdojo-down && DEFECTDOJO_CHART_VERSION=1.9.12 make defectdojo`. The 2.x <-> 3.x database
-# migration is one-way: `make defectdojo-down` before every switch.
+# migration is one-way: `make defectdojo-down` before every switch. krci-security-operator 0.2.0 is
+# tested with 3.5.200 only; 2.55.2 may work but is not tested.
 # DB + broker: the chart's bundled PostgreSQL and Valkey.
 # DEFECTDOJO_CLUSTER_NAME = CLUSTER_NAME of krci-security-operator (default in-cluster); the Portal reads it.
 DEFECTDOJO_REPO_NAME ?= defectdojo
@@ -95,7 +96,7 @@ TRIVY_OPERATOR_NS  ?= trivy-system
 # `make defectdojo-integrate` in DEFECTDOJO_SECURITY_NS. Snapshot repo only: stable 0.1.0 predates
 # the namespace products. Unreleased build, both empty by default: SECURITY_OPERATOR_CHART = local
 # chart directory (<repo>/deploy-templates), SECURITY_OPERATOR_IMAGE = <repo>:<tag> loaded into kind.
-SECURITY_OPERATOR_VERSION ?= 0.2.0-SNAPSHOT.11
+SECURITY_OPERATOR_VERSION ?= 0.2.0-SNAPSHOT.17
 SECURITY_OPERATOR_CHART ?=
 SECURITY_OPERATOR_IMAGE ?=
 # Images `preload` pulls into the host docker cache (survives `make down`) and loads into

@@ -288,9 +288,11 @@ The operator's HTTP client verifies TLS and has no insecure option, so its URL i
 CoreDNS rewrite (added by the script) makes that host reach ingress-nginx from pods; on the host
 nip.io resolves to 127.0.0.1. `defectdojo-credentials` is created only when absent, with the admin
 token; a token put there by hand (for example one with minimal permissions) is kept. Delete the
-Secret and re-run to get the admin token back.
+Secret and re-run to get the admin token back. The testbed uses the superuser token on purpose. For
+the token options of a real cluster and the recommended least-privilege setup, see
+[DefectDojo API token](https://github.com/KubeRocketCI/krci-security-operator/blob/main/docs/trivy.md#defectdojo-api-token).
 
-krci-security-operator (`SECURITY_OPERATOR_VERSION` 0.2.0-SNAPSHOT.11, snapshot repo; stable 0.1.0
+krci-security-operator (`SECURITY_OPERATOR_VERSION` 0.2.0-SNAPSHOT.17, snapshot repo; stable 0.1.0
 predates the namespace products and is what the edp-cluster-add-ons values target) runs in ns
 `krci-security` with `clusterName` = `DEFECTDOJO_CLUSTER_NAME` (`values/krci-security-operator.yaml`).
 It imports the VulnerabilityReports and ExposedSecretReports of each namespace into product
@@ -313,6 +315,8 @@ To run it from the host (`make run` in its repo) instead, scale the Deployment t
 
 Install the add-ons version with `make defectdojo-down && DEFECTDOJO_CHART_VERSION=1.9.12 make defectdojo`
 (2.55.2); run `make defectdojo-down` before every switch, the 2.x to 3.x database migration is one-way.
+krci-security-operator 0.2.0 supports DefectDojo 3.5.200 or later; on 2.55.2 it may work but is not
+tested.
 
 `make defectdojo` also installs the Trivy Operator (upstream chart `aquasecurity/trivy-operator`,
 `TRIVY_OPERATOR_CHART_VERSION` 0.37.0) in ns `trivy-system` with the edp-cluster-add-ons values
