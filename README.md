@@ -163,7 +163,7 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
 | Run storage  | Tekton Results (+ minimal Postgres)        | v0.20.0                         | tekton-pipelines |
 | CD engine    | Argo CD (single instance)                  | chart 10.9.2 / v3.5.3           | argocd           |
 | Code quality | SonarQube (+ own Postgres, sonar-operator) | chart 2025.3.1 / 25.5-community | sonar            |
-| SCM          | GitLab CE (+ Container Registry)           | 19.5.3-ce                       | gitlab           |
+| SCM          | GitLab CE (+ Container Registry)           | 19.5.8-ce                       | gitlab           |
 
 KubeRocketCI core pods (ns `krci`): `cd-pipeline-operator`, `codebase-operator`,
 `gitfusion`, `tekton-cache`, `tekton-interceptor`, `krci-portal`. The Portal serves

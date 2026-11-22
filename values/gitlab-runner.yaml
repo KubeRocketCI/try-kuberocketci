@@ -1,5 +1,5 @@
 # GitLab Runner (Kubernetes executor) for the KubeRocketCI GitLab CI path.
-# Chart: gitlab/gitlab-runner 0.94.x  (runner appVersion 19.5.x — matches GitLab CE 19.5.3).
+# Chart: gitlab/gitlab-runner 0.94.x  (runner appVersion 19.5.x — matches GitLab CE 19.5).
 #
 # KubeRocketCI does NOT bundle a runner: with Codebase spec.ciTool=gitlab the
 # codebase-operator skips the Tekton EventListener and instead pushes a .gitlab-ci.yml,

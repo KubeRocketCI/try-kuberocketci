@@ -51,7 +51,7 @@ spec:
     spec:
       containers:
         - name: gitlab
-          image: gitlab/gitlab-ce:19.5.3-ce.0
+          image: gitlab/gitlab-ce:19.5.8-ce.0
           env:
             # From secret gitlab-root-password (Makefile GITLAB_ROOT_PASSWORD via
             # scripts/gitlab-up.sh). Read by initial_root_password below.

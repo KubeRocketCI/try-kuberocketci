@@ -107,7 +107,7 @@ PRELOAD_IMAGES     ?= $(shell awk '/image: gitlab\/gitlab-ce/{print $$2}' manife
 # containing the app name ("gitlab") or the username ("root") as "commonly used".
 GITLAB_ROOT_PASSWORD ?= KrciLocal_2026!
 # GitLab Runner (Kubernetes executor) for the GitLab CI path (Codebase ciTool=gitlab);
-# KubeRocketCI bundles no runner. Chart appVersion must match the GitLab CE version in
+# KubeRocketCI bundles no runner. Chart appVersion must match the GitLab CE major.minor in
 # manifests/gitlab.yaml.
 GITLAB_RUNNER_CHART_VERSION ?= 0.94.3
 # Envoy Gateway (Gateway API traffic engine; Portal Networking tab). The gateway-helm OCI
