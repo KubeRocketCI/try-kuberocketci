@@ -56,7 +56,7 @@ SONAR_NS           ?= sonar
 # Extra CA the Substrate egress gateway trusts for upstream TLS (<ns>/<configmap>, key gitlab-ca.crt); empty: none.
 SUBSTRATE_EGRESS_CA ?= krci/gitlab-ca
 # Substrate release: checkout tag, image tag (ghcr.io/agent-substrate/substrate) and kubectl-ate version.
-SUBSTRATE_VERSION  ?= v1.0.0
+SUBSTRATE_VERSION  ?= v1.0.1
 # krci-agent-dispatcher on the Substrate landing zone (substrate-integrate): chart version = image
 # tag (epamedp/krci-agent-dispatcher); the chart pins the harness image and the agent images.
 # Snapshot repo only until a stable release.

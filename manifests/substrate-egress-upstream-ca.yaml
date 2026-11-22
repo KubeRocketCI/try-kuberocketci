@@ -1,7 +1,7 @@
 # Egress gateway upstream TLS: image roots + an extra CA (ConfigMap ate-system/egress-upstream-ca,
 # key ca.crt) over /etc/ssl/certs/ca-certificates.crt of the envoy container.
 # Partial Deployment for server-side apply under its own field manager; ate-setup owns the rest.
-# Upstream v1.0.0 pattern: hack/setup-e2e-egress-tls-kind.sh. scripts/substrate-integrate.sh fills
+# Upstream v1.0.1 pattern: hack/setup-e2e-egress-tls-kind.sh. scripts/substrate-integrate.sh fills
 # @IMAGE@ (the envoy image: has sh and cat) and @HASH@ (sha256 of the CA: rollout on a CA change only).
 apiVersion: apps/v1
 kind: Deployment
