@@ -16,7 +16,9 @@ REL="https://github.com/agent-substrate/substrate/releases/download/$VER"
 PINNED="$HERE/values/substrate-kubectl-ate.sha256"
 
 echo "==> kind nodes of $CLUSTER: proxy_arp"
-for node in $(kind get nodes --name "$CLUSTER"); do
+nodes="$(kind get nodes --name "$CLUSTER")"
+[ -n "$nodes" ] || { echo "FAIL no kind nodes in cluster $CLUSTER" >&2; exit 1; }
+for node in $nodes; do
   docker exec "$node" sysctl -q net.ipv4.conf.all.proxy_arp=1
 done
 
