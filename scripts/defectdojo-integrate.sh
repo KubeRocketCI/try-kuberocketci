@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Optional DefectDojo integration, not part of `make testbed`. Requires `make defectdojo`.
-# Each consumer is wired only when it exists; re-run after `make krci` (re-renders portal-config).
+# Each consumer is wired only when it exists.
 #   * admin API v2 token (POST /api/v2/api-token-auth/ with the chart-generated admin password in
 #     secret defectdojo/defectdojo, key DD_ADMIN_PASSWORD). The token is stable per user.
 #   * CI: secret/ci-defectdojo (keys url, token) in ns krci, read by the edp-tekton `security` and
 #     `image-scan` tasks. Only when ns krci exists. url = the Service URL.
-#   * Portal: DEFECTDOJO_URL / DEFECTDOJO_WEB_URL / DEFECTDOJO_CLUSTER_NAME in cm/portal-config and
-#     DEFECTDOJO_API_KEY in secret/krci-portal-secret. Only when both exist.
+#   * Portal: DEFECTDOJO_API_KEY in secret/krci-portal-secret, restart on a change. Only when the
+#     Secret exists. DEFECTDOJO_URL / DEFECTDOJO_WEB_URL / DEFECTDOJO_CLUSTER_NAME: Portal values
+#     (values/edp-install.yaml, values/snapshot/krci-portal.yaml).
 #   * krci-security-operator: secret/defectdojo-credentials (keys url, token) in ns krci-security,
 #     created only when absent: a token put there by hand (for example one with minimal
 #     permissions) is kept; delete the Secret to get the admin token back. url =
@@ -52,20 +53,15 @@ KUBECTL="kubectl --context $CTX"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 . "$HERE/scripts/lib/coredns.sh"
 
-PORTAL_KEYS="DEFECTDOJO_URL DEFECTDOJO_WEB_URL DEFECTDOJO_CLUSTER_NAME"
-
 if [ "${1:-}" = "--remove" ]; then
   echo "==> Removing $OPERATOR and the DefectDojo credentials"
   $HELM uninstall "$OPERATOR" -n "$SECURITY_NS" --ignore-not-found --wait --timeout 300s
   $KUBECTL delete namespace "$SECURITY_NS" --ignore-not-found --wait --timeout=300s
   if $KUBECTL get ns "$NS" >/dev/null 2>&1; then
     $KUBECTL -n "$NS" delete secret ci-defectdojo --ignore-not-found
-    if $KUBECTL -n "$NS" get configmap portal-config >/dev/null 2>&1 \
-      && $KUBECTL -n "$NS" get secret krci-portal-secret >/dev/null 2>&1 \
+    if $KUBECTL -n "$NS" get secret krci-portal-secret >/dev/null 2>&1 \
       && [ -n "$($KUBECTL -n "$NS" get secret krci-portal-secret -o jsonpath='{.data.DEFECTDOJO_API_KEY}')" ]; then
-      echo "    removing the Portal settings + restart"
-      $KUBECTL -n "$NS" patch configmap portal-config --type merge \
-        -p '{"data":{"DEFECTDOJO_URL":null,"DEFECTDOJO_WEB_URL":null,"DEFECTDOJO_CLUSTER_NAME":null}}'
+      echo "    removing the Portal API key + restart"
       $KUBECTL -n "$NS" patch secret krci-portal-secret --type merge -p '{"data":{"DEFECTDOJO_API_KEY":null}}'
       $KUBECTL -n "$NS" rollout restart deploy/krci-portal >/dev/null
     fi
@@ -197,26 +193,18 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s["type"], "data
   apply_credentials "$NS" ci-defectdojo "$DD_SVC_URL" \
     app.edp.epam.com/integration-secret=true app.edp.epam.com/secret-type=defectdojo
 
-  # The Portal reads DEFECTDOJO_URL (API, in-cluster), DEFECTDOJO_WEB_URL (links, browser) and
-  # DEFECTDOJO_CLUSTER_NAME from portal-config and DEFECTDOJO_API_KEY from krci-portal-secret.
-  if $KUBECTL -n "$NS" get configmap portal-config >/dev/null 2>&1 \
-    && $KUBECTL -n "$NS" get secret krci-portal-secret >/dev/null 2>&1; then
+  if $KUBECTL -n "$NS" get secret krci-portal-secret >/dev/null 2>&1; then
     echo "==> Wiring DefectDojo into the in-cluster Portal"
-    cm_value() { $KUBECTL -n "$NS" get configmap portal-config -o jsonpath="{.data.$1}"; }
     have_key="$($KUBECTL -n "$NS" get secret krci-portal-secret -o jsonpath='{.data.DEFECTDOJO_API_KEY}' | base64 -d)"
-    if [ "$(cm_value DEFECTDOJO_URL)" != "$DD_SVC_URL" ] || [ "$(cm_value DEFECTDOJO_WEB_URL)" != "$DD_URL" ] \
-      || [ "$(cm_value DEFECTDOJO_CLUSTER_NAME)" != "$CLUSTER_NAME" ] || [ "$have_key" != "$TOKEN" ]; then
-      $KUBECTL -n "$NS" patch configmap portal-config --type merge -p "{\"data\":{
-        \"DEFECTDOJO_URL\":\"${DD_SVC_URL}\",\"DEFECTDOJO_WEB_URL\":\"${DD_URL}\",
-        \"DEFECTDOJO_CLUSTER_NAME\":\"${CLUSTER_NAME}\"}}" >/dev/null
+    if [ "$have_key" != "$TOKEN" ]; then
       $KUBECTL -n "$NS" patch secret krci-portal-secret --type merge \
         -p "{\"stringData\":{\"DEFECTDOJO_API_KEY\":\"${TOKEN}\"}}" >/dev/null
       PORTAL_CHANGED=1
     else
-      echo "    already wired"
+      echo "    DEFECTDOJO_API_KEY present"
     fi
   else
-    echo "    cm/portal-config or secret/krci-portal-secret missing: Portal skipped"
+    echo "    secret/krci-portal-secret missing: Portal skipped"
   fi
 else
   echo "==> ns $NS absent: CI secret and Portal skipped"

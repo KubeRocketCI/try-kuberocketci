@@ -263,7 +263,7 @@ make testbed          # the full platform, in the order shown above
 
 # Optional, not part of `make testbed`
 make defectdojo            # DefectDojo (chart 1.9.70 = 3.5.200) with the chart's bundled PostgreSQL + Valkey, + Trivy Operator (0.37.0)
-make defectdojo-integrate  # admin API token -> ci-defectdojo, Portal DEFECTDOJO_*, krci-security-operator secret + install the operator
+make defectdojo-integrate  # admin API token -> ci-defectdojo, Portal DEFECTDOJO_API_KEY, krci-security-operator secret + install the operator
 make defectdojo-down       # uninstall the operator, DefectDojo + Trivy Operator, delete their namespaces, the Trivy CRDs and the credentials above
 
 make status           # cluster + KRCI + capabilities overview + values for the Portal .env
@@ -294,7 +294,7 @@ secret and the Portal:
 | Consumer                | Where                                                                                      | URL                                  |
 |-------------------------|--------------------------------------------------------------------------------------------|--------------------------------------|
 | CI pipelines (Tekton)   | secret `krci/ci-defectdojo`, keys `url`, `token`                                           | `http://defectdojo-django.defectdojo` |
-| Portal                  | `portal-config`: `DEFECTDOJO_URL`, `DEFECTDOJO_WEB_URL`, `DEFECTDOJO_CLUSTER_NAME`; `krci-portal-secret`: `DEFECTDOJO_API_KEY` | Service URL / `http://defectdojo.127.0.0.1.nip.io` |
+| Portal                  | `krci-portal-secret`: `DEFECTDOJO_API_KEY`. `DEFECTDOJO_URL`, `DEFECTDOJO_WEB_URL`, `DEFECTDOJO_CLUSTER_NAME`: Portal values (`configEnv`) | Service URL / `http://defectdojo.127.0.0.1.nip.io` |
 | krci-security-operator  | secret `krci-security/defectdojo-credentials`, keys `url`, `token`                         | `http://defectdojo.127.0.0.1.nip.io` |
 
 The operator's HTTP client verifies TLS and has no insecure option, so its URL is plain http. A
@@ -476,7 +476,7 @@ scripts/gitlab-integrate.sh             # (post-krci) SSH known-hosts pin + CA t
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script
 scripts/argocd-integrate.sh             # (post-krci) repo creds + known-hosts + ci-argocd + deploy patch
 scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube secret
-scripts/defectdojo-integrate.sh         # (optional) admin API token -> ci-defectdojo, Portal DEFECTDOJO_*, krci-security-operator secret + release; --remove for defectdojo-down
+scripts/defectdojo-integrate.sh         # (optional) admin API token -> ci-defectdojo, Portal DEFECTDOJO_API_KEY, krci-security-operator secret + release; --remove for defectdojo-down
 scripts/substrate.sh                    # (optional) Agent Substrate: release images + kubectl-ate (.cache/substrate/)
 scripts/substrate-integrate.sh          # (post-krci, optional) landing zone krci-agents: egress gateway CA, namespace/atespace/WorkerPool/namespace policy, GitLab user krci-agent, krci-agent-dispatcher
 scripts/substrate-portal.sh             # (post-krci, optional) Portal Agent mode: namespace label ate.dev/api-access + global viewer for the Portal ServiceAccount

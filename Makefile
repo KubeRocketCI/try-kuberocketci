@@ -79,7 +79,8 @@ DEPTRACK_NS        ?= dependency-track
 # migration is one-way: `make defectdojo-down` before every switch. krci-security-operator 0.2.0 is
 # tested with 3.5.200 only; 2.55.2 may work but is not tested.
 # DB + broker: the chart's bundled PostgreSQL and Valkey.
-# DEFECTDOJO_CLUSTER_NAME = CLUSTER_NAME of krci-security-operator (default in-cluster); the Portal reads it.
+# DEFECTDOJO_CLUSTER_NAME = CLUSTER_NAME of krci-security-operator (default in-cluster); must equal
+# configEnv.DEFECTDOJO_CLUSTER_NAME in the Portal values.
 DEFECTDOJO_REPO_NAME ?= defectdojo
 DEFECTDOJO_REPO_URL  ?= https://raw.githubusercontent.com/DefectDojo/django-DefectDojo/helm-charts
 DEFECTDOJO_CHART_VERSION ?= 1.9.70
@@ -385,7 +386,7 @@ defectdojo: ## Install DefectDojo (chart $(DEFECTDOJO_CHART_VERSION), bundled Po
 	@echo "DefectDojo UI: http://defectdojo.$(WILDCARD)  (run 'make defectdojo-integrate' next)"
 
 .PHONY: defectdojo-integrate
-defectdojo-integrate: repo-snapshot ## (optional; re-run after make krci) Mint the admin API token; wire ci-defectdojo (ns krci), the Portal, defectdojo-credentials (ns krci-security, kept when present) + install krci-security-operator $(SECURITY_OPERATOR_VERSION)
+defectdojo-integrate: repo-snapshot ## (optional; re-run after make krci) Mint the admin API token; wire ci-defectdojo (ns krci), the Portal API key, defectdojo-credentials (ns krci-security, kept when present) + install krci-security-operator $(SECURITY_OPERATOR_VERSION)
 	CTX='$(CTX)' NS='$(NS)' DEFECTDOJO_NS='$(DEFECTDOJO_NS)' SECURITY_NS='$(DEFECTDOJO_SECURITY_NS)' \
 	  DEFECTDOJO_CLUSTER_NAME='$(DEFECTDOJO_CLUSTER_NAME)' WILDCARD='$(WILDCARD)' TRIVY_NS='$(TRIVY_OPERATOR_NS)' \
 	  SECURITY_OPERATOR_VERSION='$(SECURITY_OPERATOR_VERSION)' SECURITY_OPERATOR_REPO='$(SNAP_HELM_REPO_NAME)' \

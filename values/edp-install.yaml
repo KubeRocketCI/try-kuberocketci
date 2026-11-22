@@ -163,6 +163,11 @@ krci-portal:
     SONAR_HOST_URL: http://sonar.sonar:9000          # in-cluster API endpoint
     SONAR_WEB_URL: https://sonar.127.0.0.1.nip.io    # public ingress for browser links (https-only)
     PROMETHEUS_URL: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
+    # DefectDojo (make defectdojo); DEFECTDOJO_API_KEY: make defectdojo-integrate (krci-portal-secret).
+    # DEFECTDOJO_CLUSTER_NAME = Makefile DEFECTDOJO_CLUSTER_NAME (krci-security-operator clusterName).
+    DEFECTDOJO_URL: http://defectdojo-django.defectdojo         # in-cluster API endpoint
+    DEFECTDOJO_WEB_URL: http://defectdojo.127.0.0.1.nip.io      # public ingress for browser links
+    DEFECTDOJO_CLUSTER_NAME: in-cluster
     # Agent mode: Agent Substrate gRPC API (in-cluster). Access: make substrate-portal (namespace
     # label + global viewer). Unreachable without make substrate.
     AGENT_SUBSTRATE_URL: https://api.ate-system.svc:443
