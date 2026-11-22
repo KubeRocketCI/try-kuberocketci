@@ -213,6 +213,19 @@ make substrate-integrate AGENT_DISPATCHER_CHART=<dispatcher>/deploy-templates \
   AGENT_DISPATCHER_IMAGE=krci-agent-dispatcher:dev-1
 ```
 
+The Portal Agent mode reads Agent Substrate at `AGENT_SUBSTRATE_URL` (`https://api.ate-system.svc:443`,
+Portal values in `values/edp-install.yaml` and `values/snapshot/krci-portal.yaml`) with its own
+ServiceAccount. After `make substrate-integrate`, run `make substrate-portal` once, and again after
+`make substrate`. It labels the Portal namespace `ate.dev/api-access=true` (the Substrate NetworkPolicy
+admits labelled namespaces only) and binds `user:system:serviceaccount:krci:krci-portal` as `viewer` in
+the global access policy, next to its existing bindings. Workers are global, so an atespace role does not
+cover them. A second run changes nothing. Check:
+
+```bash
+kubectl get ns -l ate.dev/api-access=true
+kubectl ate get access-policy --global   # kubectl-ate: .cache/substrate/<SUBSTRATE_VERSION>/bin
+```
+
 After `make e2e`, `make substrate-hook` adds the dispatcher hook to `krci/test-go-app` and protects
 the branch `agent/*` there (push: Developers, merge: Maintainers, force push off).
 
@@ -457,6 +470,7 @@ scripts/e2e.sh                          # full e2e: MR -> review -> merge -> bui
 scripts/gitlab-up.sh                    # (pre-krci) deploy GitLab + creds/secrets + CoreDNS
 scripts/gitlab-users.sh                 # GitLab users: Administrator profile, krci-ci -> ci-gitlab
 scripts/lib/gitlab.sh                   # GitLab helpers: gl_rails, onboard_gitlab_user, apply_secret
+scripts/lib/substrate.sh                # Agent Substrate helpers: ate_run, ate_policy_grant (atespace or global access policy)
 scripts/gitlab-rails/*.rb               # gitlab-rails runner scripts (users, group, deploy tokens, runner)
 scripts/gitlab-integrate.sh             # (post-krci) SSH known-hosts pin + CA trust + task patch + GitOps repo
 scripts/gitlab-set-status.py            # corrected gitlab-set-status task script
@@ -465,6 +479,7 @@ scripts/sonar-integrate.sh              # (post-krci) mint token + ci-sonarqube 
 scripts/defectdojo-integrate.sh         # (optional) admin API token -> ci-defectdojo, Portal DEFECTDOJO_*, krci-security-operator secret + release; --remove for defectdojo-down
 scripts/substrate.sh                    # (optional) Agent Substrate: release images + kubectl-ate (.cache/substrate/)
 scripts/substrate-integrate.sh          # (post-krci, optional) landing zone krci-agents: egress gateway CA, namespace/atespace/WorkerPool/namespace policy, GitLab user krci-agent, krci-agent-dispatcher
+scripts/substrate-portal.sh             # (post-krci, optional) Portal Agent mode: namespace label ate.dev/api-access + global viewer for the Portal ServiceAccount
 scripts/substrate-hook.sh               # (post-e2e, optional) krci-agent-dispatcher project hook + protected branch agent/* on test-go-app, test delivery
 scripts/gitlab-runner.sh                # GitLab CI: install + register the GitLab Runner
 scripts/gitlab-ci-onboard.sh            # GitLab CI: mirror the ci-java17-mvn component + onboard the app

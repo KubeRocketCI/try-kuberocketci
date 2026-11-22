@@ -11,6 +11,9 @@ configEnv:
   SONAR_HOST_URL: http://sonar.sonar:9000          # in-cluster API endpoint
   SONAR_WEB_URL: https://sonar.127.0.0.1.nip.io    # public ingress for browser links (https-only)
   PROMETHEUS_URL: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
+  # Agent mode: Agent Substrate gRPC API (in-cluster). Access: make substrate-portal (namespace
+  # label + global viewer). Unreachable without make substrate.
+  AGENT_SUBSTRATE_URL: https://api.ate-system.svc:443
 
 # configEnv reaches the pod via this configMapRef; secretRef adds the sensitive env
 # (manifests/krci-portal-secret.yaml, applied by `make krci` before the chart).

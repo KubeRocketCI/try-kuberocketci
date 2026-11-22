@@ -415,6 +415,10 @@ substrate-integrate: repo-snapshot ## (post-krci, optional; re-run after make su
 	  AGENT_DISPATCHER_CHART='$(AGENT_DISPATCHER_CHART)' AGENT_DISPATCHER_IMAGE='$(AGENT_DISPATCHER_IMAGE)' \
 	  WILDCARD='$(WILDCARD)' bash scripts/substrate-integrate.sh
 
+.PHONY: substrate-portal
+substrate-portal: ## (post-krci, optional; after substrate-integrate, re-run after make substrate) Portal Agent mode: ns $(NS) label ate.dev/api-access=true + global viewer for the Portal ServiceAccount; AGENT_SUBSTRATE_URL from the Portal values
+	CTX='$(CTX)' NS='$(NS)' SUBSTRATE_VERSION='$(SUBSTRATE_VERSION)' bash scripts/substrate-portal.sh
+
 .PHONY: substrate-hook
 substrate-hook: ## (post-e2e, optional; after substrate-integrate) krci-agent-dispatcher hook on test-go-app (issue and note events, SSL verification on) + protected branch agent/* (push Developers, merge Maintainers, no force push); test delivery
 	bash scripts/substrate-hook.sh

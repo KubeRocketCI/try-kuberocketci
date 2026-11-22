@@ -58,6 +58,7 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PATH="$HERE/.cache/substrate/$SUBSTRATE_VERSION/bin:$PATH"
 . "$HERE/scripts/lib/gitlab.sh"
 . "$HERE/scripts/lib/coredns.sh"
+. "$HERE/scripts/lib/substrate.sh"
 
 egress_upstream_ca() {
   local src="$SUBSTRATE_EGRESS_CA" dir="$GL_TMP/egress-ca" img hash
@@ -102,27 +103,6 @@ landing_zone() {
   echo "    namespace policy $AGENTS_NS -> [$AGENTS_NS] (sha256 ${hash:0:12})"
 }
 
-# kubectl ate get access-policy: exit 0 and empty stdout when the atespace has no policy.
-access_policy_grant() {
-  local member="user:system:serviceaccount:$AGENTS_NS:$DISPATCHER" cur err="$GL_TMP/access-policy.err"
-  cur="$($KUBECTL_ATE get access-policy -a "$AGENTS_NS" -o json 2>"$err")" \
-    || { echo "FAIL access policy read: $(grep -v '^Warning' "$err")" >&2; exit 1; }
-  if [ -z "$cur" ]; then
-    printf 'bindings:\n- role: editor\n  members:\n  - %s\n' "$member" \
-      | $KUBECTL_ATE create access-policy -a "$AGENTS_NS" -f - >/dev/null 2>"$err" \
-      || { echo "FAIL access policy create: $(grep -v '^Warning' "$err")" >&2; exit 1; }
-    echo "    access policy: created, editor $member"
-  elif jq -e --arg m "$member" 'any(.bindings[]?; .role == "editor" and ((.members // []) | index($m)))' \
-    <<<"$cur" >/dev/null; then
-    echo "    access policy: editor $member present"
-  else
-    jq --arg m "$member" 'del(.metadata.atespace) | .bindings = ((.bindings // []) + [{role: "editor", members: [$m]}])' \
-      <<<"$cur" | $KUBECTL_ATE update access-policy -a "$AGENTS_NS" -f - >/dev/null 2>"$err" \
-      || { echo "FAIL access policy update: $(grep -v '^Warning' "$err")" >&2; exit 1; }
-    echo "    access policy: editor $member added"
-  fi
-}
-
 dispatcher_tls() {
   local dir="$1"
   $KUBECTL apply --server-side --field-manager="$FIELD_MANAGER" -f "$HERE/manifests/agent-dispatcher-ca.yaml" >/dev/null
@@ -152,7 +132,7 @@ agent_dispatcher() {
 
   $KUBECTL label namespace "$AGENTS_NS" ate.dev/api-access=true --overwrite >/dev/null
   echo "    namespace $AGENTS_NS: label ate.dev/api-access=true"
-  access_policy_grant
+  ate_policy_grant "$AGENTS_NS" editor "user:system:serviceaccount:$AGENTS_NS:$DISPATCHER"
 
   if $KUBECTL -n "$AGENTS_NS" get secret hook >/dev/null 2>&1; then
     echo "    secret $AGENTS_NS/hook present"
