@@ -363,7 +363,7 @@ deptrack: ## Install Dependency-Track (chart $(DEPTRACK_CHART_VERSION)) + own Po
 	@echo "Dependency-Track UI: https://deptrack.$(WILDCARD)  (run 'make deptrack-integrate' next)"
 
 .PHONY: deptrack-integrate
-deptrack-integrate: ## (post-krci, optional; re-run after make krci) Set the admin password, mint API keys, wire ci-dependency-track + the Portal, enable OSV
+deptrack-integrate: ## (post-krci, optional) Set the admin password, mint API keys, wire ci-dependency-track + the Portal API key, enable OSV
 	bash scripts/deptrack-integrate.sh
 
 .PHONY: defectdojo

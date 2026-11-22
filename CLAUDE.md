@@ -71,6 +71,11 @@ There is no app build/lint/unit-test step — this repo *orchestrates a cluster*
   (`secret/gitlab-tls`) is trusted in several places (operator mount, `gitfusion`, kaniko,
   buildkit `SSL_CERT_FILE`, runner certs). Split-horizon DNS (CoreDNS rewrites) makes
   `gitlab.127.0.0.1.nip.io` resolve to the in-cluster Service for pods.
+- **Portal integrations: endpoints in values, credentials in the Secret.** URLs and
+  names go in the Portal `configEnv` (`values/edp-install.yaml` `krci-portal:` and
+  `values/snapshot/krci-portal.yaml`, kept in sync); `make krci` applies them. The
+  `*-integrate` script patches only the credential into `krci-portal-secret` and
+  restarts the Portal on a change. No `kubectl patch` of `portal-config`.
 - **Packages: publish per project, resolve per group.** Every language publishes to its
   own GitLab project registry and resolves from the `krci` group registry (there is no
   Nexus here). Two layers: a `gitlab-*-settings` ConfigMap we own via

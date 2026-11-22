@@ -163,6 +163,9 @@ krci-portal:
     SONAR_HOST_URL: http://sonar.sonar:9000          # in-cluster API endpoint
     SONAR_WEB_URL: https://sonar.127.0.0.1.nip.io    # public ingress for browser links (https-only)
     PROMETHEUS_URL: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
+    # Dependency-Track (make deptrack); DEPENDENCY_TRACK_API_KEY: make deptrack-integrate (krci-portal-secret).
+    DEPENDENCY_TRACK_URL: http://deptrack-api-server.dependency-track:8080   # in-cluster API endpoint
+    DEPENDENCY_TRACK_WEB_URL: https://deptrack.127.0.0.1.nip.io             # public ingress for browser links
     # DefectDojo (make defectdojo); DEFECTDOJO_API_KEY: make defectdojo-integrate (krci-portal-secret).
     # DEFECTDOJO_CLUSTER_NAME = Makefile DEFECTDOJO_CLUSTER_NAME (krci-security-operator clusterName).
     DEFECTDOJO_URL: http://defectdojo-django.defectdojo         # in-cluster API endpoint

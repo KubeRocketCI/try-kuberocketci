@@ -5,7 +5,9 @@
 #   * team krci-ci (the documented CI permissions) -> secret/ci-dependency-track, read by the
 #     edp-tekton `security` task (cdxgen SBOM upload, project=<codebase>, version=<branch>).
 #   * team krci-portal (read-only) -> DEPENDENCY_TRACK_API_KEY in secret/krci-portal-secret,
-#     read by the Portal SCA endpoints (`krci sca`).
+#     read by the Portal SCA endpoints (`krci sca`); restart on a change. Only when the Secret
+#     exists. DEPENDENCY_TRACK_URL / DEPENDENCY_TRACK_WEB_URL: Portal values
+#     (values/edp-install.yaml, values/snapshot/krci-portal.yaml).
 #   * vulnerability sources: OSV on for the testbed codebase ecosystems (off upstream);
 #     NVD stays at the upstream default. A BOM is analysed against the data mirrored at
 #     upload time: scan after the mirror finishes.
@@ -124,17 +126,18 @@ stringData:
   token: "${CI_KEY}"
 EOF
 
-# Dependency-Track is optional: the platform values do not configure it. The Portal reads
-# DEPENDENCY_TRACK_URL from portal-config and DEPENDENCY_TRACK_API_KEY from
-# krci-portal-secret; `make krci` re-renders portal-config, so run this target again after it.
 if $KUBECTL -n "$NS" get secret krci-portal-secret >/dev/null 2>&1; then
-  echo "==> Wiring Dependency-Track into the in-cluster Portal + restart"
-  $KUBECTL -n "$NS" patch configmap portal-config --type merge -p "{\"data\":{
-    \"DEPENDENCY_TRACK_URL\":\"${DT_SVC_URL}\",\"DEPENDENCY_TRACK_WEB_URL\":\"${DT_API}\"}}"
-  $KUBECTL -n "$NS" patch secret krci-portal-secret --type merge \
-    -p "{\"stringData\":{\"DEPENDENCY_TRACK_API_KEY\":\"${PORTAL_KEY}\"}}"
-  $KUBECTL -n "$NS" rollout restart deploy/krci-portal >/dev/null
-  $KUBECTL -n "$NS" rollout status deploy/krci-portal --timeout=300s
+  echo "==> Wiring Dependency-Track into the in-cluster Portal"
+  if [ "$(existing_secret_value krci-portal-secret DEPENDENCY_TRACK_API_KEY)" != "$PORTAL_KEY" ]; then
+    $KUBECTL -n "$NS" patch secret krci-portal-secret --type merge \
+      -p "{\"stringData\":{\"DEPENDENCY_TRACK_API_KEY\":\"${PORTAL_KEY}\"}}" >/dev/null
+    $KUBECTL -n "$NS" rollout restart deploy/krci-portal >/dev/null
+    $KUBECTL -n "$NS" rollout status deploy/krci-portal --timeout=300s
+  else
+    echo "    DEPENDENCY_TRACK_API_KEY present"
+  fi
+else
+  echo "    secret/krci-portal-secret missing: Portal skipped"
 fi
 
 echo ""
