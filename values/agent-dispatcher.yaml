@@ -9,7 +9,7 @@ secrets:
   hook: hook
 substrate:
   atespace: krci-agents
-  pool: workers
+  workerPool: workers
   secretsNamespace: krci-agents
 ingress:
   enabled: true
