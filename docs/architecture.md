@@ -65,7 +65,8 @@ targets (`gitlab-integrate`, `argocd-integrate`, `sonar-integrate`) are the
 
 ```mermaid
 flowchart TD
-    A[kind cluster] --> B[ingress-nginx]
+    A[kind cluster] --> A2[metrics-server]
+    A2 --> B[ingress-nginx]
     B --> C[cert-manager]
     C --> D[Tekton Pipelines/Triggers]
     D --> E[Argo CD]

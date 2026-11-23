@@ -1,0 +1,7 @@
+# metrics-server values for local kind (version: Makefile METRICS_SERVER_CHART_VERSION).
+# Serves metrics.k8s.io: `kubectl top`, HPA, Portal namespace resource usage.
+# kube-prometheus-stack does not ship it.
+
+# kind kubelet serving certs are self-signed, without IP SANs.
+args:
+  - --kubelet-insecure-tls

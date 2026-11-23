@@ -41,6 +41,12 @@ TEKTON_RESULTS_MANIFEST ?= manifests/tekton-results.yaml
 TEKTON_NS          ?= tekton-pipelines
 # kube-prometheus-stack. Chart 90 renamed the serviceMonitor auth/tls keys;
 # values/kube-prometheus-stack.yaml uses none of them.
+# metrics-server (metrics.k8s.io: kubectl top, HPA, Portal resource usage). Chart 3.14.0 =
+# metrics-server v0.9.0.
+METRICS_SERVER_REPO_NAME ?= metrics-server
+METRICS_SERVER_REPO_URL  ?= https://kubernetes-sigs.github.io/metrics-server/
+METRICS_SERVER_CHART_VERSION ?= 3.14.0
+METRICS_SERVER_NS  ?= kube-system
 PROM_REPO_NAME     ?= prometheus-community
 PROM_REPO_URL      ?= https://prometheus-community.github.io/helm-charts
 PROM_CHART_VERSION ?= 91.5.2
@@ -190,6 +196,15 @@ cluster: ## Create the kind cluster (node image from KIND_NODE_IMAGE; ports 80/4
 	  kind create cluster --config kind/cluster.yaml --image $(KIND_NODE_IMAGE); \
 	fi
 	$(KUBECTL) cluster-info
+
+.PHONY: metrics-server
+metrics-server: ## Install metrics-server (chart $(METRICS_SERVER_CHART_VERSION)) and wait for the metrics.k8s.io API
+	helm repo add $(METRICS_SERVER_REPO_NAME) $(METRICS_SERVER_REPO_URL) 2>/dev/null || true
+	helm repo update $(METRICS_SERVER_REPO_NAME)
+	$(HELM) upgrade --install metrics-server $(METRICS_SERVER_REPO_NAME)/metrics-server \
+	  --version $(METRICS_SERVER_CHART_VERSION) -n $(METRICS_SERVER_NS) \
+	  -f values/metrics-server.yaml --wait --timeout 300s
+	$(KUBECTL) wait --for=condition=Available apiservice/v1beta1.metrics.k8s.io --timeout=180s
 
 .PHONY: ingress
 ingress: ## Install ingress-nginx (kind provider) and wait
@@ -440,6 +455,7 @@ token: ## Mint a 24h cluster-admin token for Portal login (local only)
 .PHONY: status
 status: ## Show cluster + KubeRocketCI status (tool URLs grouped at the bottom)
 	@$(KUBECTL) get nodes
+	@echo "--- metrics-server ---"; $(KUBECTL) get apiservice v1beta1.metrics.k8s.io -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null | grep -qx True && $(KUBECTL) top nodes || echo "(metrics.k8s.io not available — run make metrics-server)"
 	@echo "--- krci pods ---"; $(KUBECTL) -n $(NS) get pods
 	@echo "--- ingresses ---"; $(KUBECTL) -n $(NS) get ingress
 	@echo "--- monitoring ---"; $(KUBECTL) -n $(MONITORING_NS) get pods 2>/dev/null || echo "(not installed)"
@@ -554,11 +570,11 @@ envoy: ## Install Envoy Gateway (Gateway API + Envoy CRDs + controller + 'eg' Ga
 
 # ---- lifecycle --------------------------------------------------------------
 .PHONY: up
-up: preflight cluster ingress cert-manager tekton argocd ## Platform prerequisites (cluster + ingress + cert-manager + Tekton + Argo CD; no KRCI yet)
+up: preflight cluster metrics-server ingress cert-manager tekton argocd ## Platform prerequisites (cluster + metrics-server + ingress + cert-manager + Tekton + Argo CD; no KRCI yet)
 	@echo "Prerequisites up. Next: make testbed (adds deps + GitLab, then installs KRCI last)."
 
 # Dependencies first, KRCI last (its values reference them), then the post-install glue:
-#   up -> prometheus -> tekton-results -> sonar -> gitlab-up -> krci -> gitlab-integrate -> argocd-integrate -> sonar-integrate
+#   up (cluster -> metrics-server -> ingress -> cert-manager -> tekton -> argocd) -> prometheus -> tekton-results -> sonar -> gitlab-up -> krci -> gitlab-integrate -> argocd-integrate -> sonar-integrate
 .PHONY: testbed
 testbed: up prometheus tekton-results sonar gitlab-up krci gitlab-integrate argocd-integrate sonar-integrate ## Full platform: deps first, KRCI (with gitServers/registry values) last
 	@echo "Full platform up. KRCI installed last; GitServer/EventListener rendered from values. Validate: make e2e"

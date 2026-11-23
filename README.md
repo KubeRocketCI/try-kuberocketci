@@ -99,7 +99,7 @@ make e2e       # ~12 min: MR -> review -> merge -> build -> deploy; PASS = all g
 the chart wires itself to what's already up:
 
 ```
-cluster → ingress → cert-manager → Tekton → Argo CD → Prometheus → Tekton Results → SonarQube
+cluster → metrics-server → ingress → cert-manager → Tekton → Argo CD → Prometheus → Tekton Results → SonarQube
         → gitlab-up          deploy GitLab + bootstrap creds/secrets
         → krci               install KubeRocketCI (edp-install)
         → gitlab-integrate   wire GitLab to KubeRocketCI
@@ -126,7 +126,7 @@ running — the **deps-first / KRCI-last** principle:
 ```mermaid
 flowchart LR
     subgraph Foundation
-      A[kind] --> B[ingress-nginx] --> C[cert-manager] --> D[Tekton]
+      A[kind] --> A2[metrics-server] --> B[ingress-nginx] --> C[cert-manager] --> D[Tekton]
     end
     subgraph Capabilities
       D --> E[Argo CD] --> F[Prometheus] --> G[Tekton Results] --> H[SonarQube]
@@ -155,6 +155,7 @@ KubeRocketCI deploys still go through Argo CD. Read the design docs:
 | Layer        | Component                                  | Version                         | Namespace        |
 |--------------|--------------------------------------------|---------------------------------|------------------|
 | Cluster      | kind (k8s)                                 | v1.37.0                         | —                |
+| Metrics API  | metrics-server                             | chart 3.14.0 / v0.9.0           | kube-system      |
 | Ingress      | ingress-nginx                              | controller-v1.15.1              | ingress-nginx    |
 | Certs        | cert-manager                               | v1.21.2                         | cert-manager     |
 | CI engine    | Tekton Pipelines / Triggers                | v1.6.7 / v0.37.1                | tekton-pipelines |
@@ -248,7 +249,8 @@ target is independent and idempotent, so you can rebuild/debug one component wit
 touching the rest.
 
 ```bash
-make up               # prerequisites only: cluster -> ingress -> cert-manager -> tekton -> argocd
+make up               # prerequisites only: cluster -> metrics-server -> ingress -> cert-manager -> tekton -> argocd
+make metrics-server   # add metrics-server (metrics.k8s.io: kubectl top, HPA, Portal resource usage)
 make prometheus       # add kube-prometheus-stack + Grafana
 make tekton-results   # add Tekton Results + its minimal Postgres
 make sonar            # add SonarQube + own Postgres + sonar-operator + CRs
@@ -446,6 +448,7 @@ Makefile                                # all orchestration (versions pinned at 
 kind/cluster.yaml                       # single-node kind, ports 80/443 -> localhost, registry mirror
 values/edp-install.yaml                 # KubeRocketCI chart values (in-cluster portal on)
 values/snapshot/                        # SNAPSHOT mode: per-chart values (umbrella base + one file per release)
+values/metrics-server.yaml              # metrics-server values (kubelet TLS verification off for kind)
 values/kube-prometheus-stack.yaml       # Prometheus + Grafana values
 values/argo-cd.yaml                     # Argo CD chart values (single instance)
 values/sonarqube.yaml                   # SonarQube chart values (community, external jdbc)
