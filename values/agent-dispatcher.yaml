@@ -9,7 +9,9 @@ secrets:
   hook: hook
 substrate:
   atespace: krci-agents
-  workerPool: workers
+  # Must equal the labels of WorkerPool workers in manifests/substrate-landing.yaml.
+  workerSelector:
+    workload: workers
   secretsNamespace: krci-agents
 ingress:
   enabled: true

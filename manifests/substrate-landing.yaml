@@ -12,6 +12,7 @@ kind: WorkerPool
 metadata:
   name: workers
   namespace: krci-agents
+  # Worker labels: must equal substrate.workerSelector in values/agent-dispatcher.yaml.
   labels:
     workload: workers
 spec:
