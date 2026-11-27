@@ -8,13 +8,13 @@
 #     manifests/substrate-egress-upstream-ca.yaml, server-side apply under field manager krci-testbed.
 #   * namespace + atespace krci-agents, WorkerPool krci-agents/workers (ateworker-gvisor at the
 #     installed Substrate version): manifests/substrate-landing.yaml.
-#   * credential provider namespace policy krci-agents -> [krci-agents]:
-#     manifests/substrate-namespace-policy.yaml.
+#   * credential provider namespace policy krci-agents -> [krci-agents], Secrets with label
+#     app.edp.epam.com/actor-credential=true only: manifests/substrate-namespace-policy.yaml.
 #   * GitLab user krci-agent (KRCI Agent): Developer on group krci (clone, push to unprotected
 #     branches, merge requests, notes, labels). Token krci-agent: api + write_repository, 30 days;
-#     replaced on every run.
-#   * secret krci-agents/gitlab: token; basic = base64("oauth2:<token>") (Authorization: Basic
-#     value for git over HTTPS).
+#     replaced on every run. One bot user: the same token in both credential scopes.
+#   * actor credentials (label app.edp.epam.com/actor-credential=true): secret krci-agents/gitlab:
+#     token; basic = base64("oauth2:<token>") (Authorization: Basic value for git over HTTPS).
 #   * krci-agent-dispatcher AGENT_DISPATCHER_VERSION from Helm repo AGENT_DISPATCHER_REPO,
 #     values/agent-dispatcher.yaml. The harness image and the agent images come from the chart:
 #     harnessImage and the agent profiles (deploy-templates/profiles.yaml). AGENT_DISPATCHER_CHART, a
@@ -23,17 +23,18 @@
 #     - namespace label ate.dev/api-access=true (NetworkPolicy ate-system/ate-api-server);
 #     - atespace access policy: role editor for ServiceAccount krci-agents/krci-agent-dispatcher,
 #       added to the existing bindings;
-#     - secret krci-agents/hook (key token, 40 hex), created once;
+#     - dispatcher credentials: secret krci-agents/krci-agent-dispatcher, key gitlab-token = the
+#       krci-agent token, key hook-token (40 hex) created once and kept;
 #     - configmap krci-agents/gitlab-ca (key ca.crt) from krci/gitlab-ca;
 #     - testbed CA (manifests/agent-dispatcher-ca.yaml), CoreDNS rewrite of the dispatcher host to
 #       ingress-nginx, GitLab trust of the CA (gitlab/trusted-certs key krci-agents-ca.crt,
 #       GITLAB_TRUST_ONLY=1 scripts/gitlab-up.sh).
 #     The dispatcher reads the GitLab token from the mounted secret on each use: no restart after the
 #     token is replaced.
-#   * secret krci-agents/anthropic, key api-key = the Anthropic API key (sk-ant-..., nothing else):
-#     created by you with kubectl, never by this script or from a file in the repo (upstream
-#     docs/guides/egress-credential-injection.md). Checked last; when absent, the command is
-#     printed. The same command rotates it; the credential provider caches the Secret for
+#   * actor credential secret krci-agents/anthropic, key api-key = the Anthropic API key (sk-ant-...,
+#     nothing else): created by you with kubectl, never by this script or from a file in the repo
+#     (upstream docs/guides/egress-credential-injection.md). Checked last: when present, labelled;
+#     when absent, the command is printed. The same command rotates it; the credential provider caches the Secret for
 #     --secret-cache-ttl (default 10s): a rotated key applies within that time.
 set -euo pipefail
 
@@ -48,6 +49,7 @@ AGENT_DISPATCHER_CHART="${AGENT_DISPATCHER_CHART:-}"
 AGENT_DISPATCHER_IMAGE="${AGENT_DISPATCHER_IMAGE:-}"
 WILDCARD="${WILDCARD:-127.0.0.1.nip.io}"
 DISPATCHER=krci-agent-dispatcher
+ACTOR_CREDENTIAL_LABEL=app.edp.epam.com/actor-credential=true
 DISPATCHER_HOST="agent-dispatcher.${WILDCARD}"
 TRUST_KEY=krci-agents-ca.crt
 FIELD_MANAGER=krci-testbed
@@ -125,7 +127,7 @@ dispatcher_tls() {
 
 agent_dispatcher() {
   local dir="$GL_TMP/dispatcher"
-  mkdir -p "$dir/hook"
+  mkdir -p "$dir/credentials"
   $KUBECTL -n "$NS" get configmap gitlab-ca -o jsonpath='{.data.gitlab-ca\.crt}' >"$dir/gitlab-ca.crt" 2>/dev/null || true
   grep -q 'BEGIN CERTIFICATE' "$dir/gitlab-ca.crt" || { echo "FAIL no CA (key gitlab-ca.crt) in configmap $NS/gitlab-ca: run make krci first" >&2; exit 1; }
   $KUBECTL get crd certificates.cert-manager.io >/dev/null 2>&1 || { echo "FAIL cert-manager not found: run make krci first" >&2; exit 1; }
@@ -134,12 +136,16 @@ agent_dispatcher() {
   echo "    namespace $AGENTS_NS: label ate.dev/api-access=true"
   ate_policy_grant "$AGENTS_NS" editor "user:system:serviceaccount:$AGENTS_NS:$DISPATCHER"
 
-  if $KUBECTL -n "$AGENTS_NS" get secret hook >/dev/null 2>&1; then
-    echo "    secret $AGENTS_NS/hook present"
+  cp "$GL_TMP/gitlab/token" "$dir/credentials/gitlab-token"
+  $KUBECTL -n "$AGENTS_NS" get secret "$DISPATCHER" -o jsonpath='{.data.hook-token}' 2>/dev/null \
+    | base64 -d >"$dir/credentials/hook-token" || true
+  if [ -s "$dir/credentials/hook-token" ]; then
+    echo "    hook-token kept"
   else
-    openssl rand -hex 20 | tr -d '\n' >"$dir/hook/token"
-    apply_secret "$AGENTS_NS" hook "$dir/hook"
+    openssl rand -hex 20 | tr -d '\n' >"$dir/credentials/hook-token"
+    echo "    hook-token created"
   fi
+  apply_secret "$AGENTS_NS" "$DISPATCHER" "$dir/credentials"
   $KUBECTL -n "$AGENTS_NS" create configmap gitlab-ca --from-file=ca.crt="$dir/gitlab-ca.crt" --dry-run=client -o yaml \
     | $KUBECTL apply --server-side --field-manager="$FIELD_MANAGER" -f - >/dev/null
   echo "    configmap $AGENTS_NS/gitlab-ca from $NS/gitlab-ca"
@@ -178,19 +184,22 @@ onboard_gitlab_user username=krci-agent name="KRCI Agent" avatar=@"$HERE/assets/
   group="$NS" access=developer token_name=krci-agent scopes=api,write_repository expires_days=30 >"$DIR/token"
 printf 'oauth2:%s' "$(cat "$DIR/token")" | base64 | tr -d '\n' >"$DIR/basic"
 apply_secret "$AGENTS_NS" gitlab "$DIR"
+$KUBECTL -n "$AGENTS_NS" label secret gitlab "$ACTOR_CREDENTIAL_LABEL" --overwrite >/dev/null
 
 echo "==> krci-agent-dispatcher $AGENT_DISPATCHER_VERSION in $AGENTS_NS"
 agent_dispatcher
 
 echo "==> Anthropic API key (secret $AGENTS_NS/anthropic, key api-key)"
 if $KUBECTL -n "$AGENTS_NS" get secret anthropic >/dev/null 2>&1; then
-  echo "    present"
+  $KUBECTL -n "$AGENTS_NS" label secret anthropic "$ACTOR_CREDENTIAL_LABEL" --overwrite >/dev/null
+  echo "    present, labelled $ACTOR_CREDENTIAL_LABEL"
 else
   cat <<EOF
     (todo) missing: agents cannot call Claude until it exists. Put your key in place of
     <ANTHROPIC_API_KEY> and run (the same command rotates it):
 
       $KUBECTL -n $AGENTS_NS create secret generic anthropic --from-literal=api-key=<ANTHROPIC_API_KEY> \\
-        --dry-run=client -o yaml | $KUBECTL apply -f -
+        --dry-run=client -o yaml | $KUBECTL label --local -f - $ACTOR_CREDENTIAL_LABEL -o yaml \\
+        | $KUBECTL apply -f -
 EOF
 fi

@@ -66,7 +66,7 @@ SUBSTRATE_VERSION  ?= v1.0.1
 # krci-agent-dispatcher on the Substrate landing zone (substrate-integrate): chart version = image
 # tag (epamedp/krci-agent-dispatcher); the chart pins the harness image and the agent images.
 # Snapshot repo only until a stable release.
-AGENT_DISPATCHER_VERSION ?= 0.1.0-SNAPSHOT.40
+AGENT_DISPATCHER_VERSION ?= 0.1.0-SNAPSHOT.43
 # Unreleased dispatcher build, both empty by default: AGENT_DISPATCHER_CHART = local chart directory
 # (<repo>/deploy-templates), AGENT_DISPATCHER_IMAGE = <repo>:<tag> loaded into kind. Steps: README.
 AGENT_DISPATCHER_CHART ?=

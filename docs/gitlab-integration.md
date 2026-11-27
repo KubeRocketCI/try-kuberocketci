@@ -157,7 +157,7 @@ exist).
 |------|-------|--------|
 | `root` (Administrator) | `scripts/gitlab-users.sh` (name, avatar) | — |
 | `krci-ci` (KRCI CI/CD) | `scripts/gitlab-users.sh` | `krci/ci-gitlab` |
-| `krci-agent` (KRCI Agent) | `scripts/substrate-integrate.sh` (optional; Substrate agents) | `krci-agents/gitlab` (`token`, `basic`) |
+| `krci-agent` (KRCI Agent) | `scripts/substrate-integrate.sh` (optional; Substrate agents) | `krci-agents/gitlab` (`token`, `basic`), `krci-agents/krci-agent-dispatcher` (`gitlab-token`) |
 
 Add a user: one `onboard_gitlab_user` call in the script of the component that owns it,
 then `apply_secret`. Re-runs rotate tokens; `ci-gitlab` keeps its SSH key and webhook

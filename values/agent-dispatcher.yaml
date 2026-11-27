@@ -4,15 +4,11 @@
 gitlab:
   url: https://gitlab.127.0.0.1.nip.io
   caConfigMap: gitlab-ca
-secrets:
-  gitlab: gitlab
-  hook: hook
 substrate:
   atespace: krci-agents
   # Must equal the labels of WorkerPool workers in manifests/substrate-landing.yaml.
   workerSelector:
     workload: workers
-  secretsNamespace: krci-agents
 ingress:
   enabled: true
   className: nginx

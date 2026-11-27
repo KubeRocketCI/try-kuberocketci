@@ -196,9 +196,18 @@ GitLab users (`make gitlab-users`, run by `make gitlab-up`):
 
 The optional `make substrate` installs Agent Substrate from its release images (re-run after a
 Docker restart); `make substrate-integrate` then adds `krci-agent` (**KRCI Agent**, Developer on
-`krci`) for Substrate agents; its token is in secret `krci-agents/gitlab`. It also installs
+`krci`) for Substrate agents. It also installs
 `krci-agent-dispatcher` (`AGENT_DISPATCHER_VERSION`, snapshot Helm repo) in `krci-agents`, with its
-hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. The chart pins the harness image
+hook endpoint at `https://agent-dispatcher.127.0.0.1.nip.io/hook`. Secrets of `krci-agents`, ESO off:
+
+| Credential scope | Secret | Keys | Read by |
+|---|---|---|---|
+| Dispatcher credentials | `krci-agent-dispatcher` | `gitlab-token` (`krci-agent` token), `hook-token` | dispatcher |
+| Actor credentials | `gitlab` | `token` (`krci-agent` token), `basic` | egress gateway |
+| Actor credentials | `anthropic` | `api-key` | egress gateway |
+
+The actor credentials have the label `app.edp.epam.com/actor-credential=true`; the namespace policy
+(`manifests/substrate-namespace-policy.yaml`) lets the egress gateway read only these. The chart pins the harness image
 (`harnessImage`) by digest. Agent images come from the chart's agent profiles
 (`deploy-templates/profiles.yaml`, ConfigMap `krci-agents/krci-agent-dispatcher-profiles`); an edit of
 the ConfigMap needs no restart and applies to new sessions.
@@ -231,13 +240,15 @@ After `make e2e`, `make substrate-hook` adds the dispatcher hook to `krci/test-g
 the branch `agent/*` there (push: Developers, merge: Maintainers, force push off).
 
 The Anthropic API key is the one external secret: create it yourself, never in a file or the repo.
-Secret `krci-agents/anthropic`, key `api-key`, value = the key (`sk-ant-...`) and nothing else.
-Put your key in place of `<ANTHROPIC_API_KEY>`; the same command rotates it.
-`make substrate-integrate` prints it when the Secret is missing.
+Secret `krci-agents/anthropic`, key `api-key`, value = the key (`sk-ant-...`) and nothing else,
+label `app.edp.epam.com/actor-credential=true`. Put your key in place of `<ANTHROPIC_API_KEY>`; the
+same command rotates it. `make substrate-integrate` prints it when the Secret is missing, and labels
+it when present.
 
 ```bash
 kubectl -n krci-agents create secret generic anthropic --from-literal=api-key=<ANTHROPIC_API_KEY> \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | kubectl label --local -f - app.edp.epam.com/actor-credential=true -o yaml \
+  | kubectl apply -f -
 # check: prefix and length only
 kubectl -n krci-agents get secret anthropic -o jsonpath='{.data.api-key}' | base64 -d | awk '{print substr($0,1,7) "... length " length($0)}'
 ```

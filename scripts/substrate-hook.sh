@@ -5,8 +5,8 @@
 #   * project: Codebase krci/test-go-app (.spec.gitUrlPath);
 #   * GitLab: GitServer krci/gitlab (.spec.gitHost, .spec.httpsPort), Maintainer token in its secret
 #     (.spec.nameSshKeySecret, key token), CA in configmap krci/gitlab-ca;
-#   * hook URL: https://<host of Ingress krci-agents/krci-agent-dispatcher>/hook; token in secret
-#     krci-agents/hook.
+#   * hook URL: https://<host of Ingress krci-agents/krci-agent-dispatcher>/hook; token: key
+#     hook-token of the dispatcher credentials, secret krci-agents/krci-agent-dispatcher.
 # The hook with that exact URL is created or updated: issue and note events only, SSL verification on.
 # Other hooks are not changed. A test delivery must reach the dispatcher (/hook 202 in its log).
 # Protected branch agent/*: push Developers (30), merge Maintainers (40), force push off. Created when
@@ -27,7 +27,8 @@ trap 'rm -rf "$TMP"' EXIT
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 jget() { $KUBECTL "$@" 2>/dev/null || true; }
-secret_token() { jget -n "$1" get secret "$2" -o jsonpath='{.data.token}' | base64 -d; }
+# secret_token <namespace> <secret> <key>: the decoded value of the key.
+secret_token() { jget -n "$1" get secret "$2" -o jsonpath="{.data.$3}" | base64 -d; }
 
 # api METHOD PATH [curl args]: GitLab REST call; prints the body, then the HTTP code on the last line.
 api() {
@@ -62,9 +63,9 @@ grep -q 'BEGIN CERTIFICATE' "$TMP/gitlab-ca.crt" || fail "no CA (key gitlab-ca.c
 HOOK_HOST="$(jget -n "$AGENTS_NS" get ingress "$DISPATCHER" -o jsonpath='{.spec.rules[0].host}')"
 [ -n "$HOOK_HOST" ] || fail "Ingress $AGENTS_NS/$DISPATCHER not found: run make substrate-integrate first"
 HOOK_URL="https://$HOOK_HOST/hook"
-HOOK_TOKEN="$(secret_token "$AGENTS_NS" hook)"
-[ -n "$HOOK_TOKEN" ] || fail "no token in secret $AGENTS_NS/hook: run make substrate-integrate first"
-GL_TOKEN="$(secret_token "$NS" "$GL_SECRET")"
+HOOK_TOKEN="$(secret_token "$AGENTS_NS" "$DISPATCHER" hook-token)"
+[ -n "$HOOK_TOKEN" ] || fail "no hook-token in secret $AGENTS_NS/$DISPATCHER: run make substrate-integrate first"
+GL_TOKEN="$(secret_token "$NS" "$GL_SECRET" token)"
 [ -n "$GL_TOKEN" ] || fail "no token in secret $NS/$GL_SECRET"
 TEKTON_HOOK="$(jget -n "$NS" get codebase "$CODEBASE" -o jsonpath='{.status.webHookRef}')"
 echo "    project $PROJECT on $GL_HOST; hook URL $HOOK_URL"

@@ -1,5 +1,6 @@
-# Credential provider namespace policy: atespace krci-agents may resolve Secrets of namespace
-# krci-agents only. The testbed owns the whole document. The install creates the ConfigMap only
+# Credential provider namespace policy: atespace krci-agents may resolve the actor credentials only:
+# Secrets of namespace krci-agents with label app.edp.epam.com/actor-credential=true (krci-agent-dispatcher
+# chart README, section Substrate requirements). The testbed owns the whole document. The install creates the ConfigMap only
 # when absent, so make substrate keeps it (upstream docs/guides/egress-credential-injection.md).
 # The provider reads the policy at startup only: @POLICY_HASH@ (sha256 of this file) on its pod
 # template restarts it when this file changes.
@@ -14,6 +15,9 @@ data:
       - atespace: krci-agents
         allowedNamespaces:
           - krci-agents
+        secretSelector:
+          matchLabels:
+            app.edp.epam.com/actor-credential: "true"
 ---
 apiVersion: apps/v1
 kind: Deployment
